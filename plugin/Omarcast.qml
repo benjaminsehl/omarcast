@@ -706,11 +706,11 @@ Item {
       act("Copy URL", "󰆏", "⌃↵", function() { root.copy(row.url) })
     ]
     if (k === "agent") return [
-      act("Send to " + root.agentInfo().name, "󰒊", "↵", function() { root.dismiss(); Quickshell.execDetached(["omarchy-agent-prompt", row.prompt]) }),
+      act("Send to " + root.agentInfo().name, "󰒊", "↵", function() { root.dismiss(); root.execInUserShell(["omarchy-agent-prompt", row.prompt]) }),
       act("Copy Message", "󰆏", "⌃↵", function() { root.copy(row.prompt) })
     ]
     if (k === "shell") return [
-      act(row.terminal ? "Run in Terminal" : "Run in Background", "󰐊", "↵", function() { row.terminal ? root.runInTerminal(row.command) : root.runDetached(row.command) }),
+      act(row.terminal ? "Run in Terminal" : "Run in Background", "󰐊", "↵", function() { if (row.terminal) root.runInTerminal(row.command); else { root.dismiss(); root.execInUserShell(["bash", "-c", row.command]) } }),
       act("Copy Command", "󰆏", "⌃↵", function() { root.copy(row.command) })
     ]
     if (k === "clip") return [
@@ -760,7 +760,15 @@ Item {
 
   function runInTerminal(command) {
     root.dismiss()
-    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", command])
+    root.execInUserShell(["omarchy-launch-floating-terminal-with-presentation", command])
+  }
+
+  // Run argv through the user's interactive bash so it resolves commands and
+  // environment exactly like a terminal does. omarchy-shell's own PATH can pick
+  // different binaries (e.g. a mise shim instead of a toolchain wrapper that
+  // injects credentials), which is how "Ask <agent>" ended up with no models.
+  function execInUserShell(argv) {
+    Quickshell.execDetached(["bash", "-ic", "exec \"$@\"", "omarcast"].concat(argv))
   }
 
   function openUrl(url) {
