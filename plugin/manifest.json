@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "sehl.omarcast",
+  "name": "Omarcast",
+  "version": "0.2.0",
+  "author": "Benjamin Sehl",
+  "license": "MIT",
+  "description": "Raycast-style command palette: apps, Omarchy actions, calculator, conversions, clipboard, emoji, windows, files, quicklinks and snippets.",
+  "kinds": ["overlay"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Omarcast.qml"
+  }
+}

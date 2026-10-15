@@ -1,0 +1,26 @@
+#!/bin/bash
+# Link ./plugin into omarchy-shell as sehl.omarcast and (re)load it.
+#
+# omarchy-shell's inotify watcher does not follow symlinks, so re-creating the
+# link is what tells the shell to reload after edits. If a change to a
+# property declaration doesn't take, the shell is holding a cached type:
+# run with --restart (restarts omarchy-shell; the bar blinks once).
+set -euo pipefail
+src="$(cd "$(dirname "$(readlink -f "$0")")/../plugin" && pwd)"
+dest="$HOME/.config/omarchy/plugins/sehl.omarcast"
+
+rm -f "$dest"
+sleep 0.3
+ln -s "$src" "$dest"
+
+if [[ ${1:-} == --restart ]]; then
+  omarchy restart shell >/dev/null 2>&1 || omarchy-restart-shell
+fi
+
+# Wait for the shell's rescan to see the plugin before checking enablement.
+for _ in $(seq 1 20); do
+  omarchy plugin list 2>/dev/null | grep -q '^sehl.omarcast ' && break
+  sleep 0.5
+done
+omarchy plugin list | grep -q '^sehl.omarcast .*enabled' || omarchy plugin enable sehl.omarcast
+echo "omarcast linked: $dest -> $src"

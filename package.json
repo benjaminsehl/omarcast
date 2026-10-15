@@ -1,0 +1,11 @@
+{
+  "name": "omarcast",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/calc.test.mjs && node test/sources.test.mjs",
+    "install-plugin": "./bin/omarcast-install",
+    "dev": "qs -p dev"
+  }
+}

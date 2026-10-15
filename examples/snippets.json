@@ -1,0 +1,8 @@
+[
+  // Copy to ~/.config/omarcast/snippets.json (or run "Edit Snippets").
+  // Search by name or keyword; Enter pastes, Ctrl+Enter copies.
+  // Placeholders: {date} {time} {datetime}
+  { "name": "Email address", "keyword": "@@", "text": "me@example.com" },
+  { "name": "Today", "keyword": "ddate", "text": "{date}" },
+  { "name": "Shrug", "keyword": "shrug", "text": "¯\\_(ツ)_/¯" }
+]

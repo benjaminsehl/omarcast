@@ -1,0 +1,9 @@
+#!/bin/bash
+# Toggle the Omarcast palette (an omarchy-shell plugin).
+#   omarcast-ui                      toggle root search
+#   omarcast-ui clipboard|emoji|windows|files [query]
+view="${1:-}"
+if [[ -z $view ]]; then
+  exec omarchy-shell shell toggle sehl.omarcast '{}'
+fi
+exec omarchy-shell shell summon sehl.omarcast "$(jq -nc --arg v "$view" --arg q "${2:-}" '{view: $v, query: $q}')"
