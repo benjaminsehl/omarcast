@@ -2,13 +2,23 @@
   "schemaVersion": 1,
   "id": "sehl.omarcast",
   "name": "Omarcast",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Benjamin Sehl",
   "license": "MIT",
-  "description": "Raycast-style command palette: apps, Omarchy actions, calculator, conversions, clipboard, emoji, windows, files, quicklinks and snippets.",
-  "kinds": ["overlay"],
+  "description": "Raycast-style launcher that replaces the Omarchy menu: apps, the full Omarchy menu tree, calculator and conversions, ask-your-agent, clipboard, emoji, windows, files, quicklinks and snippets.",
+  "kinds": ["menu", "bar-widget"],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "Omarcast.qml"
+    "menu": "Omarcast.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarcast",
+    "description": "Opens Omarcast (replaces the Omarchy menu button)",
+    "category": "Compositor",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.menu"
   }
 }

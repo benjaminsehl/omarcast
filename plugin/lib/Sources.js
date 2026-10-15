@@ -242,3 +242,125 @@ function expandSnippet(text) {
   var time = pad(d.getHours()) + ":" + pad(d.getMinutes())
   return String(text).replace(/\{date\}/g, date).replace(/\{time\}/g, time).replace(/\{datetime\}/g, date + " " + time)
 }
+
+// ---------------------------------------------------------------- Omarchy menu tree
+// Same rules as the stock menu (MenuModel.js): dotted ids imply the parent,
+// `parent` overrides it, kind is action > link (target) > menu.
+
+function menuTree(defaultRaw, userRaw) {
+  var items = {}
+  var order = []
+  var sources = [parseJsonc(defaultRaw, {}), parseJsonc(userRaw, {})]
+  for (var s = 0; s < sources.length; s++) {
+    var src = sources[s] && sources[s].items ? sources[s].items : sources[s]
+    for (var id in src) {
+      var raw = src[id]
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue
+      if (!items[id]) { items[id] = { id: id }; order.push(id) }
+      for (var k in raw) items[id][k] = raw[k]
+    }
+  }
+  for (var i = 0; i < order.length; i++) {
+    var it = items[order[i]]
+    if (it.parent === undefined) it.parent = it.id.indexOf(".") >= 0 ? it.id.split(".").slice(0, -1).join(".") : "root"
+    if (it.id === "root") it.parent = ""
+    it.kind = it.action ? "action" : (it.target ? "link" : "menu")
+    it.aliases = asArray(it.aliases)
+    it.order = i
+  }
+  if (!items.root) { items.root = { id: "root", parent: "", kind: "menu", label: "Go", aliases: [], order: -1 }; order.unshift("root") }
+  return { items: items, order: order }
+}
+
+function menuChildren(tree, id) {
+  var out = []
+  for (var i = 0; i < tree.order.length; i++) {
+    var it = tree.items[tree.order[i]]
+    if (it && it.parent === id) out.push(it)
+  }
+  return out
+}
+
+function menuDescendants(tree, id) {
+  var out = []
+  for (var i = 0; i < tree.order.length; i++) {
+    var it = tree.items[tree.order[i]]
+    if (!it || it.id === id) continue
+    var p = it.parent, guard = 0
+    while (p && guard++ < 32) {
+      if (p === id) { out.push(it); break }
+      p = tree.items[p] ? tree.items[p].parent : ""
+    }
+  }
+  return out
+}
+
+// Route = an id, or an alias; "go"/"menu"/"" mean root. Unknown → literal.
+function resolveRoute(tree, input) {
+  var raw = String(input || "").toLowerCase().replace(/_/g, "-")
+  if (!raw || raw === "go" || raw === "menu" || raw === "root") return "root"
+  if (tree.items[raw]) return raw
+  for (var i = 0; i < tree.order.length; i++) {
+    var it = tree.items[tree.order[i]]
+    for (var j = 0; j < it.aliases.length; j++)
+      if (String(it.aliases[j]).toLowerCase().replace(/_/g, "-") === raw) return it.id
+  }
+  return raw
+}
+
+function menuPath(tree, id) {
+  var labels = []
+  var cur = tree.items[id], guard = 0
+  while (cur && cur.id !== "root" && guard++ < 32) {
+    labels.unshift(cur.label || cur.id)
+    cur = tree.items[cur.parent]
+  }
+  return labels.join(" › ")
+}
+
+// One bash script answering every `when:` and `checked:` guard:
+// prints "w\t<id>" / "c\t<id>" for each guard that passes.
+function guardScript(tree, shellQuote) {
+  var lines = []
+  for (var i = 0; i < tree.order.length; i++) {
+    var it = tree.items[tree.order[i]]
+    if (it.when) lines.push("if ( " + it.when + " ) >/dev/null 2>&1; then printf 'w\\t%s\\n' " + shellQuote(it.id) + "; fi")
+    if (it.checked) lines.push("if ( " + it.checked + " ) >/dev/null 2>&1; then printf 'c\\t%s\\n' " + shellQuote(it.id) + "; fi")
+  }
+  return lines.join("\n")
+}
+
+// Stock providers (bash one-liners emitting label\tvalue\tcurrent).
+var MENU_PROVIDERS = {
+  "fonts": {
+    script: "current=$(omarchy-font-current 2>/dev/null); omarchy-font-list 2>/dev/null | while read -r f; do [[ -z $f ]] && continue; printf '%s\\t%s\\t%s\\n' \"$f\" \"$f\" \"$current\"; done",
+    glyph: "", action: "omarchy-font-set "
+  },
+  "power-profiles": {
+    script: "current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\t%s\\t%s\\n' \"$p\" \"$p\" \"$current\"; done",
+    glyph: "󰓅", action: "omarchy-powerprofiles-set autodetect "
+  }
+}
+
+function providerRows(menuId, key, raw, shellQuote) {
+  var spec = MENU_PROVIDERS[key]
+  if (!spec) return []
+  var rows = []
+  var lines = String(raw || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var parts = lines[i].split("\t")
+    if (!parts[0]) continue
+    rows.push({ id: menuId + ".provider." + i, parent: menuId, kind: "action", label: parts[0], icon: spec.glyph,
+      action: spec.action + shellQuote(parts[1] || parts[0]), isChecked: !!parts[2] && parts[2] === (parts[1] || parts[0]), aliases: [] })
+  }
+  return rows
+}
+
+// "<glyph>\t<label>\t<detail>" | "<label>" → picker option
+function pickOption(raw, index) {
+  var parts = String(raw || "").split("\t")
+  var glyph = parts.length > 1 ? parts.shift() : ""
+  var label = parts.shift() || ""
+  var detail = parts.join("\t")
+  return { index: index, glyph: glyph, label: label, detail: detail, value: detail ? label + "\t" + detail : label }
+}

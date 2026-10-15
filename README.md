@@ -1,13 +1,13 @@
 # Omarcast
 
-A Raycast-style command palette for Omarchy, built as an **omarchy-shell plugin**
-(`sehl.omarcast`). Because it runs inside the Omarchy shell it uses the same theme
-tokens as the Omarchy menu (`Color.menu.*`), the same font (`Style.font.menuFamily`,
-`OMARCHY_MENU_FONT`), borders, and Hyprland corner rounding, and it re-themes live
-when you switch themes.
+A Raycast-style launcher for Omarchy that **replaces the Omarchy menu**. It's an
+omarchy-shell plugin (`sehl.omarcast`) that declares `"clonedFrom": "omarchy.menu"`, so
+everything that opens the Omarchy menu opens Omarcast instead: SUPER+SPACE, SUPER+ALT+SPACE,
+the bar button, `omarchy menu <route>`, and the `omarchy menu select|input` pickers scripts use.
+It shares the Omarchy menu's theme tokens, font, borders and corner rounding, and re-themes live.
 
-Bound to **SUPER+SPACE** and **CTRL+SPACE** (⌘+Space under a Mac-style Cmd/Ctrl swap)
-in `~/.config/hypr/bindings.lua`. The Omarchy menu is still on SUPER+ALT+SPACE.
+No keybindings to set up: Omarchy's defaults (and Mac-style remaps like omac's ⌘Space)
+already call `omarchy-menu`, which now routes here.
 
 ![Omarcast converting 32°F to 0°C](docs/screenshots/calculator.png)
 
@@ -68,6 +68,12 @@ Root search, type-first:
 | `how do I …?`, any 3+ word message | **Ask your default Omarchy agent** (`omarchy agent prompt`) — top result |
 | anything else | Fallbacks: ask the agent, search Google / DuckDuckGo, run in terminal |
 
+The **whole Omarchy menu** lives inside Omarcast: the empty query shows the Go… categories
+(Apps, Learn, Trigger, Style, Setup, Install, Remove, Update, About, System), Enter drills in
+with a breadcrumb (`Setup › Defaults › Browser`), ✓ marks the current choice, `when:` guards
+hide what doesn't apply, Font/Power profile lists load live, and `omarchy menu power`-style
+aliases open the right submenu. Your `~/.config/omarchy/extensions/omarchy-menu.jsonc` additions show up too.
+
 Built-in commands (each opens its own view; Backspace on empty / Esc goes back):
 
 - **Clipboard History** – Omarchy's clipboard history with text/image preview pane
@@ -105,5 +111,7 @@ qs -p dev                         # run standalone with QML errors on stdout
 dev/shot '{"query":"32F"}'        # harness + screenshot to /tmp/omarcast-shot.png
 ```
 
-Uninstall: `omarchy plugin disable sehl.omarcast`, `rm ~/.config/omarchy/plugins/sehl.omarcast`,
-and remove the omarcast block from `~/.config/hypr/bindings.lua`.
+Bar icon: set `barIcon` / `barIconFont` in `~/.config/omarcast/config.json`.
+
+Uninstall: `omarchy plugin disable sehl.omarcast` (the stock Omarchy menu comes back) and
+`rm ~/.config/omarchy/plugins/sehl.omarcast`.

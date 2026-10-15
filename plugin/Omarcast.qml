@@ -76,6 +76,22 @@ Item {
   property string defaultMenuRaw: ""
   property string userMenuRaw: ""
 
+  // Omarchy menu tree (Omarcast replaces omarchy.menu via clonedFrom).
+  property var menuTree: ({ items: {}, order: [] })
+  property string menuRoute: "root"
+  property var checkedOk: ({})
+  property var providerCache: ({})       // menu id → provider rows (fonts, power profiles)
+
+  // `omarchy menu select|input` picker requests (file round-trip like the stock menu).
+  property string pickMode: ""           // "" | "select" | "input"
+  property string pickPrompt: ""
+  property var pickOptions: []
+  property string pickSelectionFile: ""
+  property string pickDoneFile: ""
+  property string pendingPayload: ""     // a route request that arrived before the menu loaded
+
+  readonly property var viewInfo: root.computeViewInfo(root.view, root.menuRoute, root.pickPrompt, root.menuTree)
+
   readonly property var views: ({
     "root": { title: "Omarcast", glyph: "󰘳", placeholder: "Search apps, actions, or calculate…" },
     "clipboard": { title: "Clipboard History", glyph: "󰅌", placeholder: "Search clipboard…" },
@@ -84,12 +100,25 @@ Item {
     "files": { title: "Search Files", glyph: "󰈞", placeholder: "Search files in ~…" }
   })
 
+  function computeViewInfo(view, route, prompt, tree) {
+    if (view === "menu") {
+      var it = tree.items[route]
+      return {
+        title: route === "root" ? "Omarchy" : Sources.menuPath(tree, route),
+        glyph: (it && it.icon) || "",
+        placeholder: "Search " + (route === "root" ? "Omarchy" : ((it && (it.title || it.label)) || route)) + "…"
+      }
+    }
+    if (view === "pick") return { title: prompt || "Select", glyph: "󰄬", placeholder: (prompt || (root.pickMode === "input" ? "Input" : "Select")) + "…" }
+    return root.views[view] || root.views["root"]
+  }
+
   readonly property var builtinCommands: [
     { id: "cmd:clipboard", kind: "command", title: "Clipboard History", subtitle: "Omarcast", glyph: "󰅌", keywords: ["clip", "paste", "copy history"], targetView: "clipboard" },
     { id: "cmd:emoji", kind: "command", title: "Search Emoji & Symbols", subtitle: "Omarcast", glyph: "󰞅", keywords: ["emoji", "emojis", "symbols", "smiley"], targetView: "emoji" },
     { id: "cmd:windows", kind: "command", title: "Switch Windows", subtitle: "Omarcast", glyph: "󱂬", keywords: ["windows", "switch", "focus", "alt tab"], targetView: "windows" },
     { id: "cmd:files", kind: "command", title: "Search Files", subtitle: "Omarcast", glyph: "󰈞", keywords: ["files", "find", "open file", "documents"], targetView: "files" },
-    { id: "cmd:omarchy-menu", kind: "command", title: "Omarchy Menu", subtitle: "Omarchy", glyph: "", keywords: ["menu", "go"], command: "omarchy-menu summon root" },
+    { id: "cmd:omarchy-menu", kind: "command", title: "Omarchy Menu", subtitle: "Omarchy", glyph: "", keywords: ["menu", "go", "settings"], menuRoute: "root" },
     { id: "cmd:edit-quicklinks", kind: "command", title: "Edit Quicklinks", subtitle: "Omarcast", glyph: "󰌷", keywords: ["quicklink", "bookmarks", "settings"], editFile: "quicklinks.json" },
     { id: "cmd:edit-snippets", kind: "command", title: "Edit Snippets", subtitle: "Omarcast", glyph: "󰅍", keywords: ["snippet", "text", "settings"], editFile: "snippets.json" },
     { id: "cmd:reload", kind: "command", title: "Reload Omarcast", subtitle: "Omarcast", glyph: "󰑓", keywords: ["refresh", "reindex"], reload: true }
@@ -97,10 +126,32 @@ Item {
 
   // ------------------------------------------------------------ plugin lifecycle
 
+  // Accepts both Omarcast payloads ({view, query}) and the omarchy.menu contract:
+  //   {menu|initialMenu: "<id or alias>"}       open that submenu (actions run, links follow)
+  //   {mode: "select"|"input", prompt, options, selectionFile, doneFile}   pickers
   function open(payloadJson) {
     var payload = {}
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) { payload = {} }
-    root.view = views[payload.view] ? payload.view : "root"
+    if (root.pickMode) root.finishPick(null)   // a new request supersedes a pending picker
+    if (payload.mode === "select" || payload.mode === "input") { root.openPicker(payload); return }
+
+    var view = views[payload.view] ? payload.view : "root"
+    var route = String(payload.menu || payload.initialMenu || "")
+    // Right after a shell restart the menu JSONC may not be parsed yet: replay once it is.
+    root.pendingPayload = root.menuTree.order.length <= 1 ? (payloadJson || "{}") : ""
+    if (route) {
+      var id = Sources.resolveRoute(root.menuTree, route)
+      var item = root.menuTree.items[id]
+      if (item && item.kind === "action" && item.action) {
+        root.dismiss()
+        Util.execDetached(item.action)
+        return
+      }
+      if (item && item.kind === "link" && item.target) id = item.target
+      // Root and the Apps menu are the launcher itself: type-first search.
+      if (id !== "root" && id !== "apps") { view = "menu"; root.menuRoute = id }
+    }
+    root.view = view
     root.query = payload.query || ""
     input.text = root.query
     root.actionsOpen = false
@@ -110,14 +161,52 @@ Item {
     root.maybeFetchRates()
     pointerGate.reset()
     if (root.view === "files") { root.fileRows = []; filesDebounce.restart() }
+    if (root.view === "menu") root.loadProvider(root.menuRoute)
+    root.evaluateGuards()
     root.rebuild()
     if (payload.actions) { root.actionsOpen = root.selectedActions.length > 0; root.actionIndex = 0 }
     Qt.callLater(function() { input.forceActiveFocus() })
   }
 
   function close() {
+    if (root.pickMode) root.finishPick(null)
     root.opened = false
     root.actionsOpen = false
+  }
+
+  function openPicker(payload) {
+    root.pickMode = payload.mode === "input" ? "input" : "select"
+    root.pickPrompt = String(payload.prompt || "")
+    root.pickOptions = Array.isArray(payload.options) ? payload.options : []
+    root.pickSelectionFile = String(payload.selectionFile || "")
+    root.pickDoneFile = String(payload.doneFile || "")
+    root.view = "pick"
+    root.query = ""
+    input.text = ""
+    root.actionsOpen = false
+    root.opened = true
+    pointerGate.reset()
+    root.rebuild()
+    Qt.callLater(function() { input.forceActiveFocus() })
+  }
+
+  // Write the selection (or nothing, on cancel) and touch the done file.
+  function finishPick(value) {
+    var sel = root.pickSelectionFile, done = root.pickDoneFile
+    root.pickMode = ""
+    root.pickOptions = []
+    root.pickSelectionFile = ""
+    root.pickDoneFile = ""
+    if (!done) return
+    var cmd = (value === null || value === undefined)
+      ? ": > " + Util.shellQuote(done)
+      : "printf '%s\\n' " + Util.shellQuote(String(value)) + " > " + Util.shellQuote(sel) + "; : > " + Util.shellQuote(done)
+    Quickshell.execDetached(["bash", "-c", cmd])
+  }
+
+  function choosePick(value) {
+    root.finishPick(value)
+    root.dismiss()
   }
 
   function dismiss() {
@@ -176,29 +265,104 @@ Item {
   }
 
   function applyMenu() {
+    root.menuTree = Sources.menuTree(root.defaultMenuRaw, root.userMenuRaw)
     var rows = Sources.menuRows(root.defaultMenuRaw, root.userMenuRaw)
     for (var i = 0; i < rows.length; i++) Search.prepare(rows[i])
     root.menuRows = rows
-    root.evaluateWhen()
+    root.evaluateGuards()
+    if (root.opened && root.pendingPayload) { var p = root.pendingPayload; root.pendingPayload = ""; root.open(p); return }
     if (root.opened) root.rebuild(true)
   }
 
-  // Batch-evaluate the menu's `when:` guards once, the same way the stock
-  // menu hides Hibernate on machines without it.
-  function evaluateWhen() {
-    var lines = []
-    for (var i = 0; i < root.menuRows.length; i++) {
-      var r = root.menuRows[i]
-      if (!r.when) continue
-      lines.push("if ( " + r.when + " ) >/dev/null 2>&1; then printf '%s\\n' " + Util.shellQuote(r.id) + "; fi")
-    }
-    if (lines.length === 0) { root.whenEvaluated = true; return }
-    whenProc.command = ["bash", "-c", lines.join("\n")]
+  // Batch-evaluate every `when:` (visibility) and `checked:` (✓) guard in one
+  // bash run, like the stock menu does on each open.
+  function evaluateGuards() {
+    if (whenProc.running) return
+    var script = Sources.guardScript(root.menuTree, Util.shellQuote)
+    if (!script) { root.whenEvaluated = true; return }
+    whenProc.command = ["bash", "-lc", script]
     whenProc.running = true
   }
 
   function visibleMenuRow(r) {
-    return !r.when || root.whenOk[r.id] === true
+    return !r.when || root.whenOk[r.route] === true
+  }
+
+  function visibleItem(it) {
+    return !it.when || root.whenOk[it.id] === true
+  }
+
+  function menuItemRow(it, withPath) {
+    var isAction = it.kind === "action"
+    var checked = it.isChecked === true || root.checkedOk[it.id] === true
+    var isProviderRow = String(it.id).indexOf(".provider.") >= 0
+    return Search.prepare({
+      id: isProviderRow ? "" : "omarchy:" + it.id,
+      kind: isAction ? "omarchy" : "omarchy-menu",
+      title: (it.label || it.id) + (checked ? "  ✓" : ""),
+      subtitle: withPath ? Sources.menuPath(root.menuTree, it.parent) : (it.description || ""),
+      glyph: it.icon || "",
+      glyphFont: it.iconFont || "",
+      command: it.action || "",
+      route: it.kind === "link" ? it.target : it.id,
+      keywords: [String(it.id).replace(/\./g, " "), it.title || "", it.description || ""].concat(it.aliases || [])
+    })
+  }
+
+  function menuViewRows() {
+    var route = root.menuRoute
+    var q = root.query.trim()
+    if (route === "apps") {
+      var apps = q ? Search.rank(root.appRows, q, root.history, 60) : root.appRows.slice()
+      return root.sectioned(apps, "")
+    }
+    var it = root.menuTree.items[route]
+    var hasProvider = it && it.provider && it.provider !== "apps"
+    var children = hasProvider ? (root.providerCache[route] || []) : Sources.menuChildren(root.menuTree, route)
+    if (!q) {
+      var rows = []
+      for (var i = 0; i < children.length; i++) if (root.visibleItem(children[i])) rows.push(root.menuItemRow(children[i], false))
+      return root.sectioned(rows, "")
+    }
+    var pool = []
+    var desc = Sources.menuDescendants(root.menuTree, route).concat(root.providerCache[route] || [])
+    for (var j = 0; j < desc.length; j++) if (root.visibleItem(desc[j])) pool.push(root.menuItemRow(desc[j], desc[j].parent !== route))
+    return root.sectioned(Search.rank(pool, q, root.history, 60), "Results")
+  }
+
+  function openMenu(id) {
+    var it = root.menuTree.items[id]
+    if (it && it.kind === "link" && it.target) id = it.target
+    root.view = "menu"
+    root.menuRoute = id || "root"
+    root.query = ""
+    input.text = ""
+    root.loadProvider(root.menuRoute)
+    root.rebuild()
+  }
+
+  function loadProvider(id) {
+    var it = root.menuTree.items[id]
+    if (!it || !it.provider || it.provider === "apps") return
+    var spec = Sources.MENU_PROVIDERS[it.provider]
+    if (!spec || providerProc.running) return
+    providerProc.menuId = id
+    providerProc.providerKey = it.provider
+    providerProc.command = ["bash", "-lc", spec.script]
+    providerProc.running = true
+  }
+
+  function pickRows() {
+    if (root.pickMode === "input")
+      return [{ id: "", kind: "pick-input", title: root.query || "Type, then press Enter", subtitle: "", glyph: "󰌌", _section: "" }]
+    var out = []
+    var q = root.query.trim().toLowerCase()
+    for (var i = 0; i < root.pickOptions.length; i++) {
+      var o = Sources.pickOption(root.pickOptions[i], i)
+      if (q && o.label.toLowerCase().indexOf(q) < 0 && o.detail.toLowerCase().indexOf(q) < 0) continue
+      out.push({ id: "", kind: "pick", title: o.label, subtitle: o.detail, glyph: o.glyph, value: o.value, _section: "" })
+    }
+    return out
   }
 
   function windowIcon(cls) {
@@ -282,6 +446,10 @@ Item {
       out = out.concat(root.sectioned(recent, "Recent"))
       var cmds = root.builtinCommands.slice()
       for (var c = 0; c < cmds.length; c++) Search.prepare(cmds[c])
+      var top = Sources.menuChildren(root.menuTree, "root")
+      var omarchyRows = []
+      for (var t = 0; t < top.length; t++) if (root.visibleItem(top[t])) omarchyRows.push(root.menuItemRow(top[t], false))
+      out = out.concat(root.sectioned(omarchyRows.filter(function(r) { return !recent.some(function(x) { return x.id === r.id }) }), "Omarchy"))
       out = out.concat(root.sectioned(cmds.filter(function(r) { return recent.indexOf(r) < 0 }), "Commands"))
       out = out.concat(root.sectioned(root.appRows.filter(function(r) { return recent.indexOf(r) < 0 }), "Applications"))
       return out
@@ -424,6 +592,8 @@ Item {
     else if (root.view === "emoji") next = root.emojiRows()
     else if (root.view === "windows") next = root.windowViewRows()
     else if (root.view === "files") next = root.sectioned(root.fileRows.slice(), root.query ? "Files" : "")
+    else if (root.view === "menu") next = root.menuViewRows()
+    else if (root.view === "pick") next = root.pickRows()
     else next = root.rootRows()
 
     root.rows = next
@@ -458,6 +628,11 @@ Item {
   }
 
   function popView() {
+    if (root.view === "pick") { root.choosePick(null); return }
+    if (root.view === "menu" && root.menuRoute !== "root") {
+      var it = root.menuTree.items[root.menuRoute]
+      if (it && it.parent && it.parent !== "root") { root.openMenu(it.parent); return }
+    }
     root.view = "root"
     root.query = ""
     input.text = ""
@@ -487,6 +662,7 @@ Item {
     ]
     if (k === "command") {
       if (row.targetView) return [act("Open " + row.title, "󰁔", "↵", function() { root.recordUse(row.id); root.pushView(row.targetView) })]
+      if (row.menuRoute) return [act("Open Omarchy Menu", "", "↵", function() { root.recordUse(row.id); root.openMenu(row.menuRoute) })]
       if (row.editFile) return [act("Edit " + row.editFile, "󰏫", "↵", function() { root.recordUse(row.id); root.editConfig(row.editFile) })]
       if (row.reload) return [act("Reload", "󰑓", "↵", function() { root.reloadAll(); root.dismiss() })]
       return [act("Run", "󰐊", "↵", function() { root.recordUse(row.id); root.runDetached(row.command) })]
@@ -494,11 +670,16 @@ Item {
     if (k === "omarchy") return [
       act("Run", "󰐊", "↵", function() { root.recordUse(row.id); root.runDetached(row.command) }),
       act("Copy Command", "󰆏", "⌃↵", function() { root.copy(row.command) }),
-      act("Show in Omarchy Menu", "", "", function() { root.recordUse(row.id); root.runDetached("omarchy-menu summon " + Util.shellQuote(row.route.split(".").slice(0, -1).join(".") || "root")) })
+      act("Show in Omarchy Menu", "", "", function() {
+        var it = root.menuTree.items[row.route]
+        root.openMenu(it && it.parent ? it.parent : "root")
+      })
     ]
     if (k === "omarchy-menu") return [
-      act("Open in Omarchy Menu", "", "↵", function() { root.recordUse(row.id); root.runDetached("omarchy-menu summon " + Util.shellQuote(row.route)) })
+      act("Open", "󰁔", "↵", function() { if (row.id) root.recordUse(row.id); root.openMenu(row.route) })
     ]
+    if (k === "pick") return [act("Select", "󰄬", "↵", function() { root.choosePick(row.value) })]
+    if (k === "pick-input") return [act("Submit", "󰄬", "↵", function() { root.choosePick(root.query) })]
     if (k === "omarchy-cli") return [
       act(row.args ? "Type Arguments…" : "Run in Terminal", "", "↵", function() {
         if (row.args) { root.setQueryText("> " + row.command + " ") }
@@ -665,12 +846,35 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var ok = {}
+        var ok = {}, checked = {}
         var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) if (lines[i]) ok[lines[i]] = true
+        for (var i = 0; i < lines.length; i++) {
+          var tab = lines[i].indexOf("\t")
+          if (tab < 0) continue
+          var tag = lines[i].slice(0, tab), id = lines[i].slice(tab + 1)
+          if (tag === "w") ok[id] = true
+          else if (tag === "c") checked[id] = true
+        }
         root.whenOk = ok
+        root.checkedOk = checked
         root.whenEvaluated = true
         if (root.opened) root.rebuild(true)
+      }
+    }
+  }
+
+  Process {
+    id: providerProc
+    property string menuId: ""
+    property string providerKey: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var next = {}
+        for (var k in root.providerCache) next[k] = root.providerCache[k]
+        next[providerProc.menuId] = Sources.providerRows(providerProc.menuId, providerProc.providerKey, text, Util.shellQuote)
+        root.providerCache = next
+        if (root.opened && root.view === "menu") root.rebuild(true)
       }
     }
   }
@@ -857,7 +1061,8 @@ Item {
     color: "transparent"
     WlrLayershell.namespace: "omarcast"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    // OMARCAST_NO_FOCUS=1 (dev harness only): render without grabbing the keyboard.
+    WlrLayershell.keyboardFocus: Quickshell.env("OMARCAST_NO_FOCUS") ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
     Rectangle { anchors.fill: parent; color: root.scrim }
@@ -908,7 +1113,7 @@ Item {
               id: chipText
               anchors.centerIn: parent
               textFormat: Text.PlainText
-              text: "‹  " + root.views[root.view].title
+              text: "‹  " + root.viewInfo.title
               color: root.selectedText
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -938,7 +1143,7 @@ Item {
               verticalAlignment: Text.AlignVCenter
               textFormat: Text.PlainText
               visible: input.text.length === 0
-              text: root.views[root.view].placeholder
+              text: root.viewInfo.placeholder
               color: root.foreground
               opacity: 0.45
               font: input.font
@@ -957,7 +1162,7 @@ Item {
               } else if (ctrl && key === Qt.Key_K) {
                 root.actionsOpen = !root.actionsOpen && root.selectedActions.length > 0
                 root.actionIndex = 0
-              } else if (key === Qt.Key_Backspace && !input.text && root.view !== "root") {
+              } else if (key === Qt.Key_Backspace && !input.text && root.view !== "root" && root.view !== "pick") {
                 root.popView()
               } else if (key === Qt.Key_Down || (ctrl && (key === Qt.Key_N || key === Qt.Key_J))) {
                 if (root.actionsOpen) root.actionIndex = Math.min(root.selectedActions.length - 1, root.actionIndex + 1)
@@ -1373,14 +1578,14 @@ Item {
             spacing: Style.spacing.md
             Text {
               textFormat: Text.PlainText
-              text: root.views[root.view].glyph
+              text: root.viewInfo.glyph
               color: root.selectedText
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
             }
             Text {
               textFormat: Text.PlainText
-              text: root.views[root.view].title
+              text: root.viewInfo.title
               color: root.foreground
               opacity: 0.6
               font.family: root.fontFamily
@@ -1514,7 +1719,7 @@ Item {
     if (k === "app") return "Application"
     if (k === "command") return "Command"
     if (k === "omarchy") return "Omarchy"
-    if (k === "omarchy-menu") return "Menu"
+    if (k === "omarchy-menu") return root.view === "menu" ? "›" : "Menu"
     if (k === "omarchy-cli") return "CLI"
     if (k === "window") return row.focused ? "Current" : "Window"
     if (k === "quicklink") return "Quicklink"

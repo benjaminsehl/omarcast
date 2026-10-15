@@ -57,3 +57,20 @@ assert.equal(noise.length, 0, "scattered subsequence should not match");
 const fuzzy = Search.rank([Search.prepare({ id: "y", kind: "app", title: "Thunderbird" })], "thndr", {}, 5);
 assert.equal(fuzzy.length, 1, "mostly-consecutive subsequence should match");
 console.log("ok   fuzzy precision");
+
+// Menu tree / routes
+const tree = Sources.menuTree(readFileSync(`${omarchy}/default/omarchy/omarchy-menu.jsonc`, "utf8"), "{}");
+const topLevel = Sources.menuChildren(tree, "root").map((i) => i.label);
+assert.equal(JSON.stringify(topLevel.slice(0, 3)), JSON.stringify(["Apps", "Learn", "Trigger"]));
+assert.equal(Sources.resolveRoute(tree, "power-menu"), "system");
+assert.equal(Sources.resolveRoute(tree, "go"), "root");
+assert.equal(Sources.resolveRoute(tree, "settings"), "setup");
+assert.equal(Sources.menuPath(tree, "setup.default.browser"), "Setup › Defaults › Browser");
+assert.ok(Sources.menuDescendants(tree, "setup").some((i) => i.id === "setup.default.browser.firefox"));
+const gs = Sources.guardScript(tree, (s) => `'${s}'`);
+assert.ok(gs.includes("printf 'c\\t%s\\n' 'setup.default.browser.firefox'"));
+assert.equal(Sources.pickOption("\tLabel\tsub", 0).value, "Label\tsub");
+assert.equal(Sources.pickOption("Plain", 1).label, "Plain");
+const prov = Sources.providerRows("style.font", "fonts", "A\tA\tB\nB\tB\tB\n", (s) => `'${s}'`);
+assert.equal(prov.length, 2); assert.equal(prov[1].isChecked, true); assert.equal(prov[0].action, "omarchy-font-set 'A'");
+console.log("ok   menu tree, routes, guards, providers, pickers");
