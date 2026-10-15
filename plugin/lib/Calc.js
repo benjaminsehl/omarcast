@@ -257,6 +257,9 @@ function parse(tokens) {
         var op = take().v
         usedOperator = true
         var right = unary()
+        // "a * 20% of b" → a * (20% of b)
+        var nt = peek()
+        if (right.pct && nt && nt.t === "id" && nt.v === "of") { take(); right = { v: right.v * unary().v } }
         left = { v: op === "*" ? left.v * right.v : left.v / right.v }
       } else if (t && t.t === "id" && t.v === "mod") {
         take(); usedOperator = true
@@ -482,7 +485,12 @@ function tryMath(q) {
 }
 
 function evaluate(query, rates) {
+  // Accept question phrasing: "what is 20% of 300?", "convert 5 km to mi", "how many cm in 6 ft"
   var q = String(query || "").trim().replace(/^=\s*/, "")
+    .replace(/^(what\s+is|what's|whats|calculate|calc|convert|how\s+much\s+is)\s+/i, "")
+    .replace(/\s*[?=]+$/, "")
+  var howMany = q.match(/^how\s+many\s+(.+?)\s+(?:in|are\s+in)\s+(.+)$/i)
+  if (howMany) q = howMany[2] + " to " + howMany[1]
   if (!q || q.length > 200) return null
   if (!/[0-9π]/.test(q) && !/^(pi|e|tau|phi)$/i.test(q)) return null
   return tryBase(q) || tryCurrency(q, rates) || tryUnits(q) || tryMath(q)

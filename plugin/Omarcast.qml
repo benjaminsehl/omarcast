@@ -327,7 +327,9 @@ Item {
     // otherwise it heads the fallbacks, ahead of web search.
     var agent = root.agentRow(q)
     var sentence = q.split(/\s+/).length >= 3 || /\?$/.test(q)
-    if (agent && (sentence || ranked.length === 0)) {
+    // An answer card (calculator, clock) always stays on top.
+    var hasCard = out.length > 0 && (out[0].kind === "calc" || out[0].kind === "clock")
+    if (agent && !hasCard && (sentence || ranked.length === 0)) {
       agent._section = "Ask"
       out = [agent].concat(out)
       agent = null
@@ -434,6 +436,7 @@ Item {
       Qt.callLater(function() { resultList.positionViewAtIndex(keep, ListView.Contain) })
       return
     }
+    if (soft && root.selectedIndex === 0 && next.length > 0) return  // refresh, nothing moved
     root.selectedIndex = 0
     root.actionsOpen = false
     Qt.callLater(function() { if (resultList.count > 0) resultList.positionViewAtBeginning() })

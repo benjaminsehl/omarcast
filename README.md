@@ -9,6 +9,45 @@ when you switch themes.
 Bound to **SUPER+SPACE** and **CTRL+SPACE** (⌘+Space under a Mac-style Cmd/Ctrl swap)
 in `~/.config/hypr/bindings.lua`. The Omarchy menu is still on SUPER+ALT+SPACE.
 
+![Omarcast converting 32°F to 0°C](docs/screenshots/calculator.png)
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/math.png" alt="Calculator: what is 20% of 300? → 60"></td>
+    <td><img src="docs/screenshots/currency.png" alt="Currency: 100 USD to EUR"></td>
+  </tr>
+  <tr>
+    <td align="center">Calculator answers questions — <kbd>↵</kbd> copies</td>
+    <td align="center">Live currency rates</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/ask-agent.png" alt="Ask Pi: sends the query to the default Omarchy agent"></td>
+    <td><img src="docs/screenshots/world-clock.png" alt="World clock: time in Tokyo"></td>
+  </tr>
+  <tr>
+    <td align="center">Anything else goes to your Omarchy agent</td>
+    <td align="center">World clock</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/omarchy-actions.png" alt="Omarchy actions with the Ctrl+K action panel"></td>
+    <td><img src="docs/screenshots/apps.png" alt="Application search"></td>
+  </tr>
+  <tr>
+    <td align="center">Every Omarchy action, with a <kbd>Ctrl</kbd>+<kbd>K</kbd> action panel</td>
+    <td align="center">Apps, Omarchy settings and CLI commands</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/emoji.png" alt="Emoji search"></td>
+    <td><img src="docs/screenshots/home.png" alt="Empty query: recent items and commands"></td>
+  </tr>
+  <tr>
+    <td align="center">Emoji &amp; symbols</td>
+    <td align="center">Recents and built-in commands</td>
+  </tr>
+</table>
+
+Screenshots use the Omarchy theme active at the time; Omarcast follows whichever theme you switch to.
+
 ## What it does
 
 Root search, type-first:
@@ -61,8 +100,7 @@ test/                node tests for lib/*.js
 
 ```bash
 npm test                          # calculator + sources tests
-./bin/omarcast-install            # reload after edits (shell doesn't watch through symlinks)
-./bin/omarcast-install --restart  # if a property-declaration change doesn't take
+./bin/omarcast-install            # load edits (restarts omarchy-shell; cached QML otherwise)
 qs -p dev                         # run standalone with QML errors on stdout
 dev/shot '{"query":"32F"}'        # harness + screenshot to /tmp/omarcast-shot.png
 ```

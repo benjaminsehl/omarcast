@@ -1,10 +1,9 @@
 #!/bin/bash
 # Link ./plugin into omarchy-shell as sehl.omarcast and (re)load it.
 #
-# omarchy-shell's inotify watcher does not follow symlinks, so re-creating the
-# link is what tells the shell to reload after edits. If a change to a
-# property declaration doesn't take, the shell is holding a cached type:
-# run with --restart (restarts omarchy-shell; the bar blinks once).
+# omarchy-shell's inotify watcher doesn't follow symlinks, and its in-place
+# plugin reload keeps serving cached QML/JS, so by default this restarts
+# omarchy-shell (the bar blinks once). --no-restart only re-links.
 set -euo pipefail
 src="$(cd "$(dirname "$(readlink -f "$0")")/../plugin" && pwd)"
 dest="$HOME/.config/omarchy/plugins/sehl.omarcast"
@@ -13,7 +12,7 @@ rm -f "$dest"
 sleep 0.3
 ln -s "$src" "$dest"
 
-if [[ ${1:-} == --restart ]]; then
+if [[ ${1:-} != --no-restart ]]; then
   omarchy restart shell >/dev/null 2>&1 || omarchy-restart-shell
 fi
 
