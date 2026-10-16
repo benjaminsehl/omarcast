@@ -171,7 +171,7 @@ Search highlights are separate PlainText runs, so names cannot inject markup.
 Category prefixes such as `app/`, `menu/`, `shortcut/`, `window/` and `cli/`
 restrict matching to visible names; `app/` alone lists applications.
 
-Bar icon: set `barIcon` / `barIconFont` in `~/.config/omarcast/config.json`.
+Bar icon: set `barIcon` / `barIconFont` in `~/.config/omarcast/config.json`, or `barIconImage` to an SVG or PNG path (drawn in the bar's text colour).
 
 Uninstall: `omarchy plugin disable sehl.omarcast` (the stock Omarchy menu comes back) and
 `rm -r ~/.config/omarchy/plugins/sehl.omarcast`.
