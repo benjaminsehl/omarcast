@@ -3,6 +3,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
+import QtQuick.Effects
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -41,6 +42,10 @@ Item {
   readonly property color accent: Commons.Color.accent
   readonly property color divider: Util.alpha(foreground, 0.14)
   readonly property int cornerRadius: Style.cornerRadius
+
+  // Depth from the theme's [material] (Rams): the card hangs off the wall,
+  // the selected row and the keycaps stand up as keys. Flat elsewhere.
+  Material { id: depthTheme }
   readonly property string fontFamily: Style.font.menuFamily
   readonly property int pad: Style.spacing.panelPadding
   readonly property int rowHeight: Math.max(Style.space(44), Style.font.title + Style.font.caption + Style.spacing.rowPaddingX * 2)
@@ -1325,6 +1330,25 @@ Item {
     Rectangle { anchors.fill: parent; color: root.scrim }
     MouseArea { anchors.fill: parent; onClicked: root.dismiss() }
 
+    // The card's shadow: soft and offset down, plus a tight contact one.
+    RectangularShadow {
+      visible: depthTheme.shadowAlpha > 0
+      x: card.x; y: card.y; width: card.width; height: card.height
+      offset.y: Style.space(14)
+      blur: Style.space(40)
+      spread: -Style.space(8)
+      radius: card.radius
+      color: Util.alpha(depthTheme.shadow, depthTheme.shadowAlpha * 1.2)
+    }
+    RectangularShadow {
+      visible: depthTheme.shadowAlpha > 0
+      x: card.x; y: card.y; width: card.width; height: card.height
+      offset.y: Style.space(1)
+      blur: Style.space(3)
+      radius: card.radius
+      color: Util.alpha(depthTheme.shadow, depthTheme.shadowAlpha * 0.7)
+    }
+
     BorderSurface {
       id: card
       width: root.cardWidth
@@ -1364,7 +1388,17 @@ Item {
             height: chipText.implicitHeight + Style.spacing.sm * 2
             width: chipText.implicitWidth + Style.spacing.lg * 2
             radius: root.cornerRadius
-            color: root.selectedBackground
+            color: depthTheme.on ? "transparent" : root.selectedBackground
+            transform: Translate { y: chipFace.sink }
+
+            KeyFace {
+              id: chipFace
+              anchors.fill: parent
+              visible: depthTheme.on
+              material: depthTheme
+              pressed: chipMouse.pressed
+              hot: chipMouse.containsMouse
+            }
 
             Text {
               id: chipText
@@ -1375,7 +1409,7 @@ Item {
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
             }
-            MouseArea { anchors.fill: parent; onClicked: root.popView() }
+            MouseArea { id: chipMouse; anchors.fill: parent; hoverEnabled: true; onClicked: root.popView() }
           }
 
           TextInput {
@@ -1506,8 +1540,17 @@ Item {
               width: ListView.view.width
               height: isCard ? Style.space(104) : root.rowHeight
               radius: root.cornerRadius
-              color: hasCursor ? root.selectedBackground : "transparent"
-              borderSpec: hasCursor ? root.selectedBorderSpec : Border.none()
+              readonly property bool keyed: depthTheme.on
+              color: hasCursor && !keyed ? root.selectedBackground : "transparent"
+              borderSpec: hasCursor && !keyed ? root.selectedBorderSpec : Border.none()
+
+              // The selected row is the key you're about to press.
+              KeyFace {
+                z: -1
+                anchors.fill: parent
+                visible: rowItem.keyed && rowItem.hasCursor
+                material: depthTheme
+              }
 
               // ---- standard row
               Item {
@@ -1857,29 +1900,51 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.spacing.xxl
 
-            Text {
+            Row {
               visible: root.selectedActions.length > 0
-              textFormat: Text.PlainText
-              text: root.selectedActions.length > 0 ? root.selectedActions[0].title + "  ↵" : ""
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              font.weight: Font.Medium
+              spacing: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              Text {
+                textFormat: Text.PlainText
+                text: root.selectedActions.length > 0 ? root.selectedActions[0].title : ""
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.weight: Font.Medium
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Keycap { label: "↵" }
             }
             Rectangle { width: Style.spacing.hairline; height: Style.font.body; color: root.divider; visible: root.selectedActions.length > 1 }
-            Text {
+            Row {
               visible: root.selectedActions.length > 1
-              textFormat: Text.PlainText
-              text: "Actions  ⌃K"
-              color: root.foreground
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              spacing: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              Text {
+                textFormat: Text.PlainText
+                text: "Actions"
+                color: root.foreground
+                opacity: 0.6
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Keycap { label: "⌃K" }
             }
           }
         }
 
         // ---------------- action panel (Ctrl+K)
+        RectangularShadow {
+          visible: actionPanel.visible && depthTheme.shadowAlpha > 0
+          z: 9
+          x: actionPanel.x; y: actionPanel.y; width: actionPanel.width; height: actionPanel.height
+          offset.y: Style.space(8)
+          blur: Style.space(22)
+          spread: -Style.space(5)
+          radius: actionPanel.radius
+          color: Util.alpha(depthTheme.shadow, depthTheme.shadowAlpha)
+        }
         BorderSurface {
           id: actionPanel
           visible: root.actionsOpen
@@ -2007,5 +2072,29 @@ Item {
     }
     if (r.kind === "file") return [["Name", r.title], ["Where", r.subtitle], ["Kind", r.isDir ? "Folder" : ((r.title.indexOf(".") > 0 ? r.title.split(".").pop().toUpperCase() + " " : "") + "File")]]
     return []
+  }
+
+  // A shortcut printed on a little key, like the ET 66's. Flat without depth.
+  component Keycap: Item {
+    id: cap
+    property string label: ""
+    implicitWidth: Math.max(capText.implicitWidth + Style.spacing.md * 2, implicitHeight)
+    implicitHeight: capText.implicitHeight + Style.spacing.xxs * 2 + Style.space(2)
+
+    KeyFace {
+      anchors.fill: parent
+      visible: depthTheme.on
+      material: depthTheme
+    }
+    Text {
+      id: capText
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: cap.label
+      color: root.foreground
+      opacity: depthTheme.on ? 0.85 : 0.6
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+    }
   }
 }
