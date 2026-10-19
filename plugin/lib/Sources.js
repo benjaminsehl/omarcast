@@ -60,6 +60,7 @@ function menuRows(defaultRaw, userRaw) {
       kind: isAction ? "omarchy" : "omarchy-menu",
       title: it.label || key,
       subtitle: (crumbs ? crumbs : "Omarchy") + (isAction ? "" : " ›"),
+      path: (crumbs ? crumbs + " › " : "") + (it.label || key),
       glyph: it.icon || "",
       glyphFont: it.iconFont || "",
       keywords: [key.replace(/\./g, " "), it.title || "", it.description || ""].concat(asArray(it.aliases)),

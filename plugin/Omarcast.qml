@@ -49,6 +49,8 @@ Item {
   property bool opened: false
   property string view: "root"           // root | clipboard | emoji | windows | files
   property string query: ""
+  readonly property var parsedQuery: Search.parseQuery(root.query)
+  property bool preview: false
   property int selectedIndex: 0
   property var rows: []                  // rows currently displayed (parallel to displayModel)
   property bool actionsOpen: false
@@ -103,7 +105,7 @@ Item {
     "clipboard": { title: "Clipboard History", glyph: "󰅌", placeholder: "Search clipboard…" },
     "emoji": { title: "Emoji", glyph: "󰞅", placeholder: "Search emoji…" },
     "windows": { title: "Switch Windows", glyph: "󱂬", placeholder: "Search open windows…" },
-    "files": { title: "Search Files", glyph: "󰈞", placeholder: "Search files in ~…" }
+    "files": { title: "Search Files", glyph: "󰈞", placeholder: "Search files in ~…" },
   })
 
   function computeViewInfo(view, route, prompt, tree) {
@@ -138,6 +140,7 @@ Item {
   function open(payloadJson) {
     var payload = {}
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) { payload = {} }
+    root.preview = payload.preview === true
     if (root.pickMode) root.finishPick(null)   // a new request supersedes a pending picker
     if (payload.mode === "select" || payload.mode === "input") { root.openPicker(payload); return }
 
@@ -247,6 +250,24 @@ Item {
   function toggle() { if (root.opened) root.dismiss(); else root.open("{}") }
   function refresh() { root.reloadAll(); return "ok" }
   function ping() { return "ok" }
+  function status(payloadJson) {
+    var payload = {}
+    try { if (payloadJson) payload = JSON.parse(payloadJson) } catch (e) { }
+    var query = payload.query === undefined ? root.query : String(payload.query)
+    var parsed = Search.parseQuery(query)
+    var rows = payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
+    return JSON.stringify({ opened: root.opened, view: root.view, query: query,
+      counts: { apps: root.appRows.length, menu: root.menuRows.length,
+        cli: root.cliRows.length },
+      picker: { mode: root.pickMode, multiple: root.pickMultiple, selected: root.pickSelected },
+      results: rows.slice(0, 8).map(function(row) {
+        var display = Search.displayText(row, query)
+        return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
+          kind: row.kind, shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          titleMatch: Search.matchPositions(display, parsed.text),
+          kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope) }
+      }) })
+  }
 
   Component.onCompleted: {
     mkdirProc.running = true
@@ -339,6 +360,7 @@ Item {
       kind: isAction ? "omarchy" : "omarchy-menu",
       title: (it.label || it.id) + (checked ? "  ✓" : ""),
       subtitle: withPath ? Sources.menuPath(root.menuTree, it.parent) : (it.description || ""),
+      path: [Sources.menuPath(root.menuTree, it.parent), (it.label || it.id) + (checked ? "  ✓" : "")].filter(function(part) { return part !== "" }).join(" › "),
       glyph: it.icon || "",
       glyphFont: it.iconFont || "",
       command: it.action || "",
@@ -506,6 +528,11 @@ Item {
       ]
     }
 
+    var parsed = Search.parseQuery(q)
+    if (parsed.scoped) {
+      return root.sectioned(Search.rank(root.allSearchRows(), q, root.history, 100), "Matching " + parsed.scope + "/" + parsed.text)
+    }
+
     var calc = Calc.evaluate(q, root.rates)
     if (calc) out.push({ id: "", kind: "calc", calc: calc, title: calc.result, _section: "Calculator" })
 
@@ -528,7 +555,7 @@ Item {
     if (url) out.push({ id: "", kind: "url", title: "Open " + url.replace(/^https?:\/\//, ""), subtitle: url, glyph: "󰖟", url: url, _section: "Quicklink" })
 
     // With a calculator/clock card, only keep strong text matches (no fuzzy noise).
-    var ranked = Search.rank(root.allSearchRows(), q, root.history, 40, out.length > 0 ? 500 : 0)
+    var ranked = Search.rank(root.allSearchRows(), q, root.history, 40, out.length > 0 ? 1 : 0)
     out = out.concat(root.sectioned(ranked, "Results"))
 
     // Typed text goes to the default Omarchy agent. It leads the list when the
@@ -538,7 +565,8 @@ Item {
     var sentence = q.split(/\s+/).length >= 3 || /\?$/.test(q)
     // An answer card (calculator, clock) always stays on top.
     var hasCard = out.length > 0 && (out[0].kind === "calc" || out[0].kind === "clock")
-    if (agent && !hasCard && (sentence || ranked.length === 0)) {
+    var strongMatch = ranked.length > 0 && Search.textMatch(ranked[0], q, true).score >= 1
+    if (agent && !hasCard && !strongMatch && (sentence || ranked.length === 0)) {
       agent._section = "Ask"
       out = [agent].concat(out)
       agent = null
@@ -1158,7 +1186,7 @@ Item {
     WlrLayershell.namespace: "omarcast"
     WlrLayershell.layer: WlrLayer.Overlay
     // OMARCAST_NO_FOCUS=1 (dev harness only): render without grabbing the keyboard.
-    WlrLayershell.keyboardFocus: Quickshell.env("OMARCAST_NO_FOCUS") ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: root.preview || Quickshell.env("OMARCAST_NO_FOCUS") ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
     Rectangle { anchors.fill: parent; color: root.scrim }
@@ -1337,6 +1365,7 @@ Item {
               required property int index
               required property int ri
               readonly property var row: root.rows[ri] || ({})
+              readonly property var searchMatch: Search.textMatch(row, root.parsedQuery.text, root.parsedQuery.scoped)
               readonly property bool hasCursor: index === root.selectedIndex
               readonly property bool isCard: row.kind === "calc" || row.kind === "clock"
               readonly property string imageSource: row.kind === "app" || row.kind === "window" ? root.iconSource(row.icon) : ""
@@ -1383,20 +1412,19 @@ Item {
                   }
                 }
 
-                Text {
+                MatchText {
                   id: titleText
                   anchors.left: iconSlot.right
                   anchors.leftMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
                   width: Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55))
-                  textFormat: Text.PlainText
-                  text: rowItem.row.title || ""
+                  text: rowItem.searchMatch.text
+                  positions: Search.matchPositions(text, root.parsedQuery.text)
                   color: rowItem.hasCursor ? root.selectedText : root.foreground
+                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
                   font.weight: Font.Medium
-                  elide: Text.ElideRight
-                  maximumLineCount: 1
                 }
 
                 Text {
@@ -1406,7 +1434,7 @@ Item {
                   anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
-                  text: rowItem.row.subtitle || ""
+                  text: rowItem.searchMatch.field === "path" ? "" : rowItem.row.subtitle || ""
                   color: root.foreground
                   opacity: 0.5
                   font.family: root.fontFamily
@@ -1415,16 +1443,17 @@ Item {
                   maximumLineCount: 1
                 }
 
-                Text {
+                MatchText {
                   id: accessory
                   anchors.right: parent.right
                   anchors.rightMargin: Style.spacing.xl
                   anchors.verticalCenter: parent.verticalCenter
                   visible: !body.showDetail
-                  textFormat: Text.PlainText
                   text: root.kindLabel(rowItem.row)
-                  color: root.foreground
-                  opacity: 0.4
+                  positions: Search.matchPositions(text, root.parsedQuery.scope)
+                  color: rowItem.hasCursor ? root.selectedText : root.foreground
+                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
+                  opacity: root.parsedQuery.scoped ? 1.0 : 0.4
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }

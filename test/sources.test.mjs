@@ -51,9 +51,10 @@ assert.ok(lock.includes("omarchy:system.lock"), lock.join(","));
 console.log("ok   ranking", top.join(" | "));
 console.log("\nall passed");
 
-// Fuzzy matching must not pick up scattered letters.
-const noise = Search.rank([Search.prepare({ id: "x", kind: "omarchy", title: "With desktop + microphone audio" })], "theme", {}, 5);
-assert.equal(noise.length, 0, "scattered subsequence should not match");
+// Quicksilver retains complete sparse subsequences, but dense matches lead.
+const noise = Search.prepare({ id: "x", kind: "omarchy", title: "With desktop + microphone audio" });
+const exact = Search.prepare({ id: "exact", kind: "omarchy", title: "Theme" });
+assert.equal(Search.rank([noise, exact], "theme", {}, 5)[0].id, "exact");
 const fuzzy = Search.rank([Search.prepare({ id: "y", kind: "app", title: "Thunderbird" })], "thndr", {}, 5);
 assert.equal(fuzzy.length, 1, "mostly-consecutive subsequence should match");
 console.log("ok   fuzzy precision");

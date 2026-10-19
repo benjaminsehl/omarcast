@@ -56,6 +56,8 @@ Root search, type-first:
 |---|---|
 | `firefox`, `chrom` | Applications (Omarchy's app library: hidden entries, icons, launch feedback) |
 | `theme`, `lock`, `wifi` | Every Omarchy menu action; submenus/pickers open the Omarchy menu at that spot |
+| `app/fac` | Scope to applications: matched letters in **App**lication and **Fac**torio are highlighted |
+| `stheme` | Fuzzy-match the complete breadcrumb **Style › Theme**, ahead of scattered CLI matches |
 | `omarchy theme` | `omarchy` CLI commands (run in a terminal, or prefill args) |
 | `1+1`, `2^10`, `sqrt(2)`, `20% of 50`, `5!`, `0xff`, `255 to hex` | Calculator card |
 | `32F`, `5 km`, `6 ft in cm`, `1 GiB to MB`, `90 min to h` | Unit conversion card (length, mass, volume, area, speed, time, data, energy, angle, temperature) |
@@ -85,8 +87,15 @@ Built-in commands (each opens its own view; Backspace on empty / Esc goes back):
 Keys: `↵` primary action · `Ctrl+↵` secondary · `Ctrl+K` action panel · `↑↓` / `Ctrl+N/P` ·
 `Tab` opens a command's view · `Esc` clears → back → close.
 
-Usage is remembered (`~/.local/state/omarcast/history.json`) and boosts ranking;
-the empty query shows Recent, Commands, Applications.
+Fuzzy ranking uses the scoring formula from [`tobi/try`](https://github.com/tobi/try):
+word starts, proximity, early-match density and shorter names. A menu breadcrumb is
+one structured name, so `stheme` matches `Style › Theme` rather than unrelated CLI
+text. There are no categorical prefix/initialism tiers overriding those scores.
+The UI shows and highlights the full breadcrumb when that is what matched.
+Unrelated metadata fields stay separate and are discounted; scopes search names only.
+
+Usage is remembered (`~/.local/state/omarcast/history.json`) and breaks equal-score
+ties; the empty query shows Recent, Commands, Applications.
 
 ## Compatibility
 
@@ -98,12 +107,12 @@ symlinked plugins are rejected by current Omarchy.
 ## Layout
 
 ```
-plugin/              the shell plugin (linked into ~/.config/omarchy/plugins/sehl.omarcast)
+plugin/              source, copied into ~/.config/omarchy/plugins/sehl.omarcast
   Omarcast.qml       UI, views, actions, data sources
   lib/Calc.js        calculator, units, currency, bases
   lib/Search.js      ranking + frecency
   lib/Sources.js     Omarchy menu/CLI parsing, windows, quicklinks, time zones, snippets
-bin/omarcast-install link/reload the plugin (--restart restarts omarchy-shell)
+bin/omarcast-install validate/copy/reload the plugin (--no-restart only deploys files)
 bin/omarcast-ui      toggle from a shell: omarcast-ui [clipboard|emoji|windows|files] [query]
 dev/                 standalone harness (real Omarchy Commons/Ui) + screenshot helper
 test/                node tests for lib/*.js
@@ -112,13 +121,20 @@ test/                node tests for lib/*.js
 ## Develop
 
 ```bash
-npm test                          # calculator + sources tests
+npm test                         # portable calculator + search tests
+npm run test:integration          # real Omarchy menu/CLI, live bindings and compositor
 ./bin/omarcast-install            # load edits (restarts omarchy-shell; cached QML otherwise)
 qs -p dev                         # run standalone with QML errors on stdout
 dev/shot '{"query":"32F"}'        # harness + screenshot to /tmp/omarcast-shot.png
 ```
 
+Edit the Git checkout and rerun `./bin/omarcast-install`; do not edit the deployed
+copy. Symlinked plugin packages are rejected by current Omarchy validation.
+Search highlights are separate PlainText runs, so names cannot inject markup.
+Category prefixes such as `app/`, `menu/`, `shortcut/`, `window/` and `cli/`
+restrict matching to visible names; `app/` alone lists applications.
+
 Bar icon: set `barIcon` / `barIconFont` in `~/.config/omarcast/config.json`.
 
 Uninstall: `omarchy plugin disable sehl.omarcast` (the stock Omarchy menu comes back) and
-`rm ~/.config/omarchy/plugins/sehl.omarcast`.
+`rm -r ~/.config/omarchy/plugins/sehl.omarcast`.
