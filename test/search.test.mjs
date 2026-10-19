@@ -109,7 +109,14 @@ test('menu breadcrumb matching gives stheme the same score as tobi/try', () => {
   assert.equal(Array.from(positions, at => match.text[at]).join('').toLowerCase(), 'stheme');
 });
 
-
+test('shortcut records deduplicate physical/symbolic aliases and group chords', () => {
+  const rows = Sources.keybindingRows('SUPER + 1  → Workspace 1\nSUPER + 1 → Workspace 1\nSUPER + Q → Close\nSUPER + W → Close\ninvalid\n');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].shortcut, 'SUPER + 1');
+  assert.equal(rows[1].shortcut, 'SUPER + Q / SUPER + W');
+  assert.equal(rows[0].command, undefined);
+  assert.equal(rows[0].dispatcher, undefined);
+});
 
 test('app/fac scopes to Application and fuzzy-matches the application name', () => {
   const rows = [row('action', 'Factorio', 'keybinding'), row('factorio', 'Factorio'),

@@ -18,6 +18,22 @@ const Calc = load('Calc');
 const row = (id, title, kind = 'app', extra = {}) => Search.prepare({ id, title, kind, ...extra });
 const ids = rows => Array.from(rows, r => r.id);
 
+test('all live Omarchy shortcut records are represented', () => {
+  const raw = execFileSync('omarchy', ['menu', 'keybindings', '--print'], { encoding: 'utf8', timeout: 20000 });
+  const rows = Sources.keybindingRows(raw);
+  assert.ok(rows.length > 0, 'expected a complete shortcut index');
+  let count = 0;
+  for (const line of raw.split('\n')) {
+    const match = line.match(/^\s*(.+?)\s+→\s+(.+?)\s*$/);
+    if (!match) continue;
+    const chord = match[1].replace(/\s+/g, ' ').trim();
+    assert.ok(rows.some(row => row.title === match[2].trim() && row.shortcuts.includes(chord)), line);
+    count++;
+  }
+  assert.ok(count > 0);
+  console.log('Live shortcut coverage:', count, 'records;', rows.length, 'grouped actions');
+});
+
 test('real Omarchy menu, CLI and calculator still load', () => {
   const dir = process.env.OMARCHY_PATH || '/usr/share/omarchy';
   const menu = Sources.menuRows(readFileSync(dir + '/default/omarchy/omarchy-menu.jsonc', 'utf8'), '{}');

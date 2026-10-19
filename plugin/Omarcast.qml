@@ -62,6 +62,7 @@ Item {
   property var appRows: []
   property var menuRows: []
   property var cliRows: []
+  property var keybindingRows: []
   property var windowRows: []
   property var snippetRows: []
   property var links: Sources.quicklinks("")
@@ -106,6 +107,7 @@ Item {
     "emoji": { title: "Emoji", glyph: "󰞅", placeholder: "Search emoji…" },
     "windows": { title: "Switch Windows", glyph: "󱂬", placeholder: "Search open windows…" },
     "files": { title: "Search Files", glyph: "󰈞", placeholder: "Search files in ~…" },
+    "keybindings": { title: "Keyboard Shortcuts", glyph: "󰌌", placeholder: "Search Omarchy shortcuts…" }
   })
 
   function computeViewInfo(view, route, prompt, tree) {
@@ -126,6 +128,7 @@ Item {
     { id: "cmd:emoji", kind: "command", title: "Search Emoji & Symbols", subtitle: "Omarcast", glyph: "󰞅", keywords: ["emoji", "emojis", "symbols", "smiley"], targetView: "emoji" },
     { id: "cmd:windows", kind: "command", title: "Switch Windows", subtitle: "Omarcast", glyph: "󱂬", keywords: ["windows", "switch", "focus", "alt tab"], targetView: "windows" },
     { id: "cmd:files", kind: "command", title: "Search Files", subtitle: "Omarcast", glyph: "󰈞", keywords: ["files", "find", "open file", "documents"], targetView: "files" },
+    { id: "cmd:keybindings", kind: "command", title: "Keyboard Shortcuts", subtitle: "Live Omarchy defaults and personal bindings", glyph: "󰌌", keywords: ["hotkeys", "shortcuts", "keybindings", "super k"], targetView: "keybindings" },
     { id: "cmd:omarchy-menu", kind: "command", title: "Omarchy Menu", subtitle: "Omarchy", glyph: "", keywords: ["menu", "go", "settings"], menuRoute: "root" },
     { id: "cmd:edit-quicklinks", kind: "command", title: "Edit Quicklinks", subtitle: "Omarcast", glyph: "󰌷", keywords: ["quicklink", "bookmarks", "settings"], editFile: "quicklinks.json" },
     { id: "cmd:edit-snippets", kind: "command", title: "Edit Snippets", subtitle: "Omarcast", glyph: "󰅍", keywords: ["snippet", "text", "settings"], editFile: "snippets.json" },
@@ -167,6 +170,7 @@ Item {
     root.opened = true
     root.refreshApps()
     windowsProc.running = true
+    keybindingsProc.running = true
     root.maybeFetchRates()
     pointerGate.reset()
     if (root.view === "files") { root.fileRows = []; filesDebounce.restart() }
@@ -258,7 +262,7 @@ Item {
     var rows = payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
     return JSON.stringify({ opened: root.opened, view: root.view, query: query,
       counts: { apps: root.appRows.length, menu: root.menuRows.length,
-        cli: root.cliRows.length },
+        cli: root.cliRows.length, shortcuts: root.keybindingRows.length },
       picker: { mode: root.pickMode, multiple: root.pickMultiple, selected: root.pickSelected },
       results: rows.slice(0, 8).map(function(row) {
         var display = Search.displayText(row, query)
@@ -281,6 +285,7 @@ Item {
     quicklinksFile.reload()
     snippetsFile.reload()
     cliProc.running = true
+    keybindingsProc.running = true
     root.refreshApps()
     root.maybeFetchRates(true)
   }
@@ -490,7 +495,7 @@ Item {
   function allSearchRows() {
     var out = root.builtinCommands.slice()
     for (var i = 0; i < root.menuRows.length; i++) if (root.visibleMenuRow(root.menuRows[i])) out.push(root.menuRows[i])
-    return out.concat(root.appRows, root.windowRows, root.snippetRows, root.cliRows)
+    return out.concat(root.appRows, root.windowRows, root.snippetRows, root.cliRows, root.keybindingRows)
   }
 
   function sectioned(list, section) {
@@ -651,6 +656,13 @@ Item {
     return root.sectioned(list.slice(), "Open Windows")
   }
 
+  function keybindingViewRows() {
+    var list = root.query.trim()
+      ? Search.rank(root.keybindingRows, root.query, {}, root.keybindingRows.length)
+      : root.keybindingRows.slice()
+    return root.sectioned(list, "Omarchy shortcuts · Enter copies the chord · Super+K opens the action picker")
+  }
+
   // soft: a background data refresh — keep the selected row and action panel.
   function rebuild(soft) {
     // Only preserve a selection the user moved to; otherwise re-rank picks the top row.
@@ -660,6 +672,7 @@ Item {
     if (root.view === "clipboard") next = root.clipboardRows()
     else if (root.view === "emoji") next = root.emojiRows()
     else if (root.view === "windows") next = root.windowViewRows()
+    else if (root.view === "keybindings") next = root.keybindingViewRows()
     else if (root.view === "files") next = root.sectioned(root.fileRows.slice(), root.query ? "Files" : "")
     else if (root.view === "menu") next = root.menuViewRows()
     else if (root.view === "pick") next = root.pickRows()
@@ -692,6 +705,7 @@ Item {
     root.query = ""
     input.text = ""
     if (name === "windows") windowsProc.running = true
+    if (name === "keybindings") keybindingsProc.running = true
     if (name === "files") root.fileRows = []
     root.rebuild()
   }
@@ -750,6 +764,10 @@ Item {
     if (k === "pick-apply") return [act("Apply Selection", "󰄬", "↵", function() { root.applyPicker() })]
     if (k === "pick") return [act(root.pickMultiple ? "Toggle Selection" : "Select", "󰄬", "↵", function() { root.choosePick(row.value) })]
     if (k === "pick-input") return [act("Submit", "󰄬", "↵", function() { root.choosePick(root.query) })]
+    if (k === "keybinding") return [
+      act("Copy Shortcut", "󰆏", "↵", function() { root.copy(row.shortcut) }),
+      act("Open Full Shortcut Action Picker", "󰌌", "⌃↵", function() { root.runDetached("omarchy-menu-keybindings") })
+    ]
     if (k === "omarchy-cli") return [
       act(row.args ? "Type Arguments…" : "Run in Terminal", "", "↵", function() {
         if (row.args) { root.setQueryText("> " + row.command + " ") }
@@ -1013,6 +1031,20 @@ Item {
         root.rebuild(true)
       }
       startNext()
+    }
+  }
+
+  Process {
+    id: keybindingsProc
+    command: ["omarchy", "menu", "keybindings", "--print"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var rows = Sources.keybindingRows(text)
+        for (var i = 0; i < rows.length; i++) Search.prepare(rows[i])
+        root.keybindingRows = rows
+        if (root.opened) root.rebuild(true)
+      }
     }
   }
 
@@ -1846,6 +1878,7 @@ Item {
     if (k === "omarchy") return "Omarchy"
     if (k === "omarchy-menu") return root.view === "menu" ? "›" : "Menu"
     if (k === "omarchy-cli") return "CLI"
+    if (k === "keybinding") return "Shortcut"
     if (k === "window") return row.focused ? "Current" : "Window"
     if (k === "quicklink") return "Quicklink"
     if (k === "url") return "Web"

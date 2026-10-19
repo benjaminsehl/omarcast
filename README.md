@@ -58,6 +58,7 @@ Root search, type-first:
 | `theme`, `lock`, `wifi` | Every Omarchy menu action; submenus/pickers open the Omarchy menu at that spot |
 | `app/fac` | Scope to applications: matched letters in **App**lication and **Fac**torio are highlighted |
 | `stheme` | Fuzzy-match the complete breadcrumb **Style › Theme**, ahead of scattered CLI matches |
+| `shortcuts`, `shortcut/workspace` | Live Omarchy/default and personal keyboard shortcuts; Enter copies, Ctrl+Enter opens the full action picker |
 | `omarchy theme` | `omarchy` CLI commands (run in a terminal, or prefill args) |
 | `1+1`, `2^10`, `sqrt(2)`, `20% of 50`, `5!`, `0xff`, `255 to hex` | Calculator card |
 | `32F`, `5 km`, `6 ft in cm`, `1 GiB to MB`, `90 min to h` | Unit conversion card (length, mass, volume, area, speed, time, data, energy, angle, temperature) |
@@ -82,6 +83,7 @@ Built-in commands (each opens its own view; Backspace on empty / Esc goes back):
 - **Search Emoji & Symbols** – paste or copy
 - **Switch Windows** – focus or close
 - **Search Files** – `fd` over `~`, with preview pane
+- **Keyboard Shortcuts** – the live `omarchy menu keybindings --print` index; Super+K still opens the stock actionable picker
 - **Edit Quicklinks / Edit Snippets** – `~/.config/omarcast/{quicklinks,snippets}.json` (see `examples/`)
 
 Keys: `↵` primary action · `Ctrl+↵` secondary · `Ctrl+K` action panel · `↑↓` / `Ctrl+N/P` ·
@@ -123,6 +125,7 @@ test/                node tests for lib/*.js
 ```bash
 npm test                         # portable calculator + search tests
 npm run test:integration          # real Omarchy menu/CLI, live bindings and compositor
+npm run test:live                 # live picker contracts and non-focusing UI previews
 ./bin/omarcast-install            # load edits (restarts omarchy-shell; cached QML otherwise)
 qs -p dev                         # run standalone with QML errors on stdout
 dev/shot '{"query":"32F"}'        # harness + screenshot to /tmp/omarcast-shot.png

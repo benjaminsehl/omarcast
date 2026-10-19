@@ -95,6 +95,37 @@ function cliRows(raw) {
   return rows
 }
 
+// ---------------------------------------------------------------- keyboard shortcuts
+
+// The stock command resolves Lua bindings, physical keycodes and personal
+// overrides. Index its human-readable output instead of maintaining a second
+// shortcut table or trying to execute opaque compositor callback IDs.
+function keybindingRows(raw) {
+  var rows = [], byTitle = {}
+  var lines = String(raw || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var match = lines[i].match(/^\s*(.+?)\s+→\s+(.+?)\s*$/)
+    if (!match) continue
+    var chord = match[1].replace(/\s+/g, " ").trim()
+    var title = match[2].trim()
+    var key = JSON.stringify(title)
+    var row = byTitle[key]
+    if (!row) {
+      row = { id: "keybinding:" + title, kind: "keybinding", title: title,
+        subtitle: "", glyph: "󰌌", shortcuts: [], keywords: ["shortcut", "hotkey", "keybinding"] }
+      byTitle[key] = row
+      rows.push(row)
+    }
+    if (row.shortcuts.indexOf(chord) < 0) row.shortcuts.push(chord)
+  }
+  for (var j = 0; j < rows.length; j++) {
+    rows[j].shortcut = rows[j].shortcuts.join(" / ")
+    rows[j].subtitle = rows[j].shortcut
+    rows[j].keywords = rows[j].keywords.concat(rows[j].shortcuts)
+  }
+  return rows
+}
+
 // ---------------------------------------------------------------- windows
 
 function windowRows(raw) {
