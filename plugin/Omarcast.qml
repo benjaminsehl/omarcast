@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
 import qs.Commons as Commons
@@ -8,6 +9,7 @@ import qs.Ui
 import "lib/Calc.js" as Calc
 import "lib/Search.js" as Search
 import "lib/Sources.js" as Sources
+import "lib/RunningApps.js" as RunningApps
 
 // Omarcast — a Raycast-style palette living inside omarchy-shell, so it
 // shares the menu's theme tokens, fonts, borders and corner rounding.
@@ -64,6 +66,11 @@ Item {
   property var cliRows: []
   property var keybindingRows: []
   property var windowRows: []
+  property var workspaceLabels: ({})
+  property var workspaceLabelsCommand: []
+  property bool windowsRefreshPending: false
+  readonly property var runningAppRows: RunningApps.annotate(root.appRows, root.windowRows,
+    root.workspaceLabels, root.workspaceLabelsCommand.length > 0)
   property var snippetRows: []
   property var links: Sources.quicklinks("")
   property var zones: []
@@ -169,7 +176,7 @@ Item {
     root.actionsOpen = false
     root.opened = true
     root.refreshApps()
-    windowsProc.running = true
+    root.refreshWindows()
     keybindingsProc.running = true
     root.maybeFetchRates()
     pointerGate.reset()
@@ -268,6 +275,9 @@ Item {
         var display = Search.displayText(row, query)
         return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
           kind: row.kind, shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          running: !!row.runningWindow, location: row.runningLocation || "",
+          targetAddress: row.runningWindow ? row.runningWindow.address : "",
+          accessory: root.rowAccessory(row),
           titleMatch: Search.matchPositions(display, parsed.text),
           kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope) }
       }) })
@@ -284,6 +294,8 @@ Item {
     userMenuFile.reload()
     quicklinksFile.reload()
     snippetsFile.reload()
+    configFile.reload()
+    root.refreshWindows()
     cliProc.running = true
     keybindingsProc.running = true
     root.refreshApps()
@@ -313,7 +325,8 @@ Item {
         subtitle: String(e.genericName || e.comment || ""),
         keywords: kw.concat([String(e.comment || ""), String(e.id)]),
         icon: String(e.icon || ""),
-        appId: String(e.id)
+        appId: String(e.id),
+        startupClass: String(e.startupClass || "")
       }))
     }
     root.appRows = out
@@ -378,7 +391,7 @@ Item {
     var route = root.menuRoute
     var q = root.query.trim()
     if (route === "apps") {
-      var apps = q ? Search.rank(root.appRows, q, root.history, 60) : root.appRows.slice()
+      var apps = q ? Search.rank(root.runningAppRows, q, root.history, 60) : root.runningAppRows.slice()
       return root.sectioned(apps, "")
     }
     var it = root.menuTree.items[route]
@@ -495,7 +508,7 @@ Item {
   function allSearchRows() {
     var out = root.builtinCommands.slice()
     for (var i = 0; i < root.menuRows.length; i++) if (root.visibleMenuRow(root.menuRows[i])) out.push(root.menuRows[i])
-    return out.concat(root.appRows, root.windowRows, root.snippetRows, root.cliRows, root.keybindingRows)
+    return out.concat(root.runningAppRows, root.windowRows, root.snippetRows, root.cliRows, root.keybindingRows)
   }
 
   function sectioned(list, section) {
@@ -519,7 +532,7 @@ Item {
       for (var t = 0; t < top.length; t++) if (root.visibleItem(top[t])) omarchyRows.push(root.menuItemRow(top[t], false))
       out = out.concat(root.sectioned(omarchyRows.filter(function(r) { return !recent.some(function(x) { return x.id === r.id }) }), "Omarchy"))
       out = out.concat(root.sectioned(cmds.filter(function(r) { return recent.indexOf(r) < 0 }), "Commands"))
-      out = out.concat(root.sectioned(root.appRows.filter(function(r) { return recent.indexOf(r) < 0 }), "Applications"))
+      out = out.concat(root.sectioned(root.runningAppRows.filter(function(r) { return recent.indexOf(r) < 0 }), "Applications"))
       return out
     }
 
@@ -704,7 +717,7 @@ Item {
     root.view = name
     root.query = ""
     input.text = ""
-    if (name === "windows") windowsProc.running = true
+    if (name === "windows") root.refreshWindows()
     if (name === "keybindings") keybindingsProc.running = true
     if (name === "files") root.fileRows = []
     root.rebuild()
@@ -760,10 +773,17 @@ Item {
   function actionsFor(row) {
     if (!row) return []
     var k = row.kind
-    if (k === "app") return [
-      act("Open Application", "󰏌", "↵", function() { root.launchApp(row) }),
-      act("Copy Name", "󰆏", "⌃↵", function() { root.copy(row.title) })
-    ]
+    if (k === "app") {
+      var actions = [
+        act(row.runningWindow ? "Switch to → " + row.runningLocation : "Open Application", "󰏌", "↵", function() {
+          if (row.runningWindow) { root.recordUse(row.id); root.focusWindow(row.runningWindow) }
+          else root.launchApp(row)
+        }),
+        act("Copy Name", "󰆏", "⌃↵", function() { root.copy(row.title) })
+      ]
+      if (row.runningWindow) actions.push(act("Launch Application", "󰏌", "", function() { root.launchApp(row) }))
+      return actions
+    }
     if (k === "command") {
       if (row.targetView) return [act("Open " + row.title, "󰁔", "↵", function() { root.recordUse(row.id); root.pushView(row.targetView) })]
       if (row.menuRoute) return [act("Open Omarchy Menu", "", "↵", function() { root.recordUse(row.id); root.openMenu(row.menuRoute) })]
@@ -906,9 +926,11 @@ Item {
   }
 
   function focusWindow(row) {
+    var expression = RunningApps.focusExpression(row.address)
+    if (!expression) return
     root.recordUse(row.historyId)
     root.dismiss()
-    Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = \"address:" + row.address + "\" })"])
+    Quickshell.execDetached(["hyprctl", "dispatch", expression])
   }
 
   function closeWindow(row) {
@@ -1069,6 +1091,58 @@ Item {
     }
   }
 
+  function refreshWindows() {
+    if (windowsProc.running || workspaceLabelsProc.running) { root.windowsRefreshPending = true; return }
+    windowsProc.running = true
+    if (root.workspaceLabelsCommand.length > 0) {
+      workspaceLabelsProc.command = root.workspaceLabelsCommand
+      workspaceLabelsProc.running = true
+    }
+  }
+
+  function finishWindowsRefresh() {
+    if (root.windowsRefreshPending && !windowsProc.running && !workspaceLabelsProc.running) {
+      root.windowsRefreshPending = false
+      root.refreshWindows()
+    }
+  }
+
+  Timer {
+    id: windowsRefresh
+    interval: 50
+    onTriggered: root.refreshWindows()
+  }
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (root.opened && /window|workspace|monitor|focusedmon/.test(event.name)) windowsRefresh.restart()
+    }
+  }
+
+  FileView {
+    id: configFile
+    path: root.configDir + "/config.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      root.workspaceLabelsCommand = RunningApps.labelsCommand(Sources.parseJsonc(text(), {}))
+      root.workspaceLabels = ({})
+      if (root.opened) root.refreshWindows()
+    }
+  }
+  Process {
+    id: workspaceLabelsProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.workspaceLabels = RunningApps.parseLabels(text)
+        if (root.opened) root.rebuild(true)
+      }
+    }
+    onExited: root.finishWindowsRefresh()
+  }
+
   Process {
     id: windowsProc
     command: ["hyprctl", "clients", "-j"]
@@ -1076,12 +1150,18 @@ Item {
       waitForEnd: true
       onStreamFinished: {
         var rows = Sources.windowRows(text)
-        for (var i = 0; i < rows.length; i++) { rows[i].icon = root.windowIcon(rows[i].appClass); Search.prepare(rows[i]) }
+        for (var i = 0; i < rows.length; i++) {
+          rows[i].icon = root.windowIcon(rows[i].appClass)
+          var entry = DesktopEntries.heuristicLookup(rows[i].appClass)
+          rows[i].desktopId = entry ? String(entry.id) : ""
+          Search.prepare(rows[i])
+        }
         // The palette itself has focus; the focused window is the one we came from.
         root.windowRows = rows
-        if (root.opened && (root.view === "windows" || root.query)) root.rebuild(true)
+        if (root.opened) root.rebuild(true)
       }
     }
+    onExited: root.finishWindowsRefresh()
   }
 
   Process {
@@ -1470,7 +1550,7 @@ Item {
                   anchors.left: iconSlot.right
                   anchors.leftMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
-                  width: Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55))
+                  width: Math.max(0, Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55), accessory.x - x - Style.spacing.lg * 2))
                   text: rowItem.searchMatch.text
                   positions: Search.matchPositions(text, root.parsedQuery.text)
                   color: rowItem.hasCursor ? root.selectedText : root.foreground
@@ -1502,11 +1582,11 @@ Item {
                   anchors.rightMargin: Style.spacing.xl
                   anchors.verticalCenter: parent.verticalCenter
                   visible: !body.showDetail
-                  text: root.kindLabel(rowItem.row)
+                  text: root.rowAccessory(rowItem.row)
                   positions: Search.matchPositions(text, root.parsedQuery.scope)
                   color: rowItem.hasCursor ? root.selectedText : root.foreground
                   matchColor: rowItem.hasCursor ? root.selectedText : root.accent
-                  opacity: root.parsedQuery.scoped ? 1.0 : 0.4
+                  opacity: root.parsedQuery.scoped || rowItem.row.runningWindow ? 1.0 : 0.4
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }
@@ -1889,6 +1969,12 @@ Item {
         }
       }
     }
+  }
+
+  function rowAccessory(row) {
+    if (row && row.kind === "app" && row.runningWindow)
+      return "Application · Switch to → " + row.runningLocation
+    return root.kindLabel(row)
   }
 
   function kindLabel(row) {

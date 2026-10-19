@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test/calc.test.mjs && node --test test/compat.test.mjs test/search.test.mjs test/navigation.test.mjs",
+    "test": "node test/calc.test.mjs && node --test test/compat.test.mjs test/search.test.mjs test/navigation.test.mjs test/running-apps.test.mjs",
     "install-plugin": "./bin/omarcast-install",
     "dev": "qs -p dev",
     "test:integration": "node test/sources.test.mjs && node --test test/integration.test.mjs",

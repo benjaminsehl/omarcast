@@ -145,6 +145,8 @@ function windowRows(raw) {
       title: w.title || cls || "Window",
       subtitle: (cls ? cls : "") + (ws ? "  ·  workspace " + ws.replace(/^special:/, "special ") : ""),
       appClass: cls,
+      workspaceName: ws,
+      focusOrder: Number.isFinite(w.focusHistoryID) && w.focusHistoryID >= 0 ? w.focusHistoryID : 1000000,
       address: w.address,
       focused: w.focusHistoryID === 0,
       keywords: [cls, w.initialTitle || ""]

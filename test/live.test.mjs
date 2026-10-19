@@ -23,6 +23,26 @@ function waitForFile(path) {
   });
 }
 
+test('live running apps expose a switch target without activating it', t => {
+  try {
+    open({ query: 'app/' });
+    let row;
+    for (const name of ['Signal', 'Slack', 'Google Chrome', 'Firefox', 'Chromium', 'Foot', 'Alacritty', 'Kitty', 'Herdr', 'Obsidian']) {
+      const status = JSON.parse(call('status', JSON.stringify({ query: 'app/' + name })));
+      row = status.results.find(r => r.title === name && r.running);
+      if (row) break;
+    }
+    if (!row) return t.skip('No recognized running application in this desktop session');
+    open({ query: 'app/' + row.title });
+    const actual = JSON.parse(call('status')).results.find(r => r.id === row.id);
+    assert.equal(actual.running, true);
+    assert.ok(actual.location.length > 0);
+    assert.equal(actual.accessory, 'Application · Switch to → ' + actual.location);
+    const clients = JSON.parse(execFileSync('hyprctl', ['clients', '-j'], { encoding: 'utf8' }));
+    assert.ok(clients.some(c => c.address === actual.targetAddress && c.mapped !== false));
+  } finally { shell('hide', 'sehl.omarcast'); }
+});
+
 test('live clone routes, visible app/fac matches, stock pickers and shortcut action picker', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'omarcast-test-'));
   let shortcutProcess;

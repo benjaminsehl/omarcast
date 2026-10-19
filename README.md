@@ -105,6 +105,33 @@ Unrelated metadata fields stay separate and are discounted; scopes search names 
 Usage is remembered (`~/.local/state/omarcast/history.json`) and breaks equal-score
 ties; the empty query shows Recent, Commands, Applications.
 
+## Running applications
+
+Running applications show **Application · Switch to → Desktop 3** on the right.
+Enter switches to their most recently focused window instead of starting another
+instance; **Launch Application** remains available in the action panel. Association
+uses desktop IDs, declared startup classes and Quickshell's desktop-entry lookup,
+never window titles. Chrome app-mode windows must match explicitly, keeping them
+separate from normal browser windows and from other app profiles. Open, close,
+focus and desktop-change events refresh the snapshot while the palette is open.
+Window activation resolves the target live and switches its desktop before focusing
+it; a window closed since the snapshot cannot materialize an empty desktop.
+
+By default the desktop label uses Hyprland's workspace name. Custom desktop models
+can provide their displayed labels with an optional argv array in
+`~/.config/omarcast/config.json`:
+
+```json
+{ "workspaceLabelsCommand": ["my-desktop-labels", "--json"] }
+```
+
+The command writes a JSON object mapping exact workspace names to display labels,
+for example `{"work":"Desktop 3"}`. It runs locally on open/explicit refresh and on
+relevant compositor events while open; no shell interpolation is performed. Only
+configure a command you trust. Until a configured provider supplies a label, the UI
+shows `Desktop…` rather than exposing an internal workspace name. Use the desktop
+model's authoritative current numbering, not a parked desktop's home number.
+
 ## Compatibility
 
 Current Omarchy app-library wrappers are unwrapped and theme colors use an explicit
@@ -119,6 +146,7 @@ plugin/              source, copied into ~/.config/omarchy/plugins/sehl.omarcast
   Omarcast.qml       UI, views, actions, data sources
   lib/Calc.js        calculator, units, currency, bases
   lib/Search.js      ranking + frecency
+  lib/RunningApps.js  running-window association, desktop labels, safe activation
   lib/Sources.js     Omarchy menu/CLI parsing, windows, quicklinks, time zones, snippets
 bin/omarcast-install validate/copy/reload the plugin (--no-restart only deploys files)
 bin/omarcast-ui      toggle from a shell: omarcast-ui [clipboard|emoji|windows|files] [query]
@@ -129,7 +157,7 @@ test/                node tests for lib/*.js
 ## Develop
 
 ```bash
-npm test                         # portable calculator + search tests
+npm test                         # portable calculator, search, navigation and running-app tests
 npm run test:integration          # real Omarchy menu/CLI, live bindings and compositor
 npm run test:live                 # live picker contracts and non-focusing UI previews
 ./bin/omarcast-install            # load edits (restarts omarchy-shell; cached QML otherwise)
