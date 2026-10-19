@@ -89,6 +89,12 @@ Built-in commands (each opens its own view; Backspace on empty / Esc goes back):
 Keys: `↵` primary action · `Ctrl+↵` secondary · `Ctrl+K` action panel · `↑↓` / `Ctrl+N/P` ·
 `Tab` opens a command's view · `Esc` clears → back → close.
 
+`Backspace` at the start of the search (including an empty search) removes the
+innermost submenu/view pill. Existing search text is retained when stepping out.
+Ordinary text selection/deletion, modifier shortcuts and IME composition still
+belong to the text field. Holding Backspace to clear text does not eat the pills.
+Removing a script-picker pill cancels it without applying any selection.
+
 Fuzzy ranking uses the scoring formula from [`tobi/try`](https://github.com/tobi/try):
 word starts, proximity, early-match density and shorter names. A menu breadcrumb is
 one structured name, so `stheme` matches `Style › Theme` rather than unrelated CLI

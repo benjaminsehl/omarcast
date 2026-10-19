@@ -53,6 +53,25 @@ test('live clone routes, visible app/fac matches, stock pickers and shortcut act
     assert.equal(theme.titleMatch.map(at => theme.displayTitle[at]).join('').toLowerCase(), 'stheme');
     shell('hide', 'sehl.omarcast');
 
+    open({ menu: 'setup.default' });
+    assert.equal(JSON.parse(call('status')).menuRoute, 'setup.default');
+    call('popView');
+    assert.equal(JSON.parse(call('status')).menuRoute, 'setup');
+    call('popView');
+    const rootStatus = JSON.parse(call('status'));
+    assert.equal(rootStatus.view, 'root');
+    assert.equal(rootStatus.menuRoute, 'root');
+    assert.equal(rootStatus.opened, true);
+    shell('hide', 'sehl.omarcast');
+
+    const cancelledSelection = join(dir, 'cancelled.selection'), cancelledDone = join(dir, 'cancelled.done');
+    open({ mode: 'select', prompt: 'Cancel test', options: ['Alpha'], multiple: true,
+      selected: ['Alpha'], selectionFile: cancelledSelection, doneFile: cancelledDone });
+    call('popView');
+    await waitForFile(cancelledDone);
+    assert.equal(existsSync(cancelledSelection), false);
+    assert.equal(JSON.parse(call('status')).opened, false);
+
     async function picker(name, payload, action, expected) {
       const selectionFile = join(dir, name + '.selection'), doneFile = join(dir, name + '.done');
       open({ ...payload, selectionFile, doneFile });
@@ -111,7 +130,7 @@ test('live clone routes, visible app/fac matches, stock pickers and shortcut act
       timer.unref();
     })]);
     assert.equal(JSON.parse(call('status')).opened, false);
-    console.log('Live app/fac, stheme, select, input, multiple, onChange/rollback and Super+K picker passed.');
+    console.log('Live app/fac, stheme, pill navigation, picker cancellation/contracts and Super+K picker passed.');
   } finally {
     shell('hide', 'sehl.omarcast');
     if (shortcutProcess && shortcutProcess.exitCode === null) shortcutProcess.kill();

@@ -260,7 +260,7 @@ Item {
     var query = payload.query === undefined ? root.query : String(payload.query)
     var parsed = Search.parseQuery(query)
     var rows = payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
-    return JSON.stringify({ opened: root.opened, view: root.view, query: query,
+    return JSON.stringify({ opened: root.opened, view: root.view, menuRoute: root.menuRoute, query: query,
       counts: { apps: root.appRows.length, menu: root.menuRows.length,
         cli: root.cliRows.length, shortcuts: root.keybindingRows.length },
       picker: { mode: root.pickMode, multiple: root.pickMultiple, selected: root.pickSelected },
@@ -712,14 +712,35 @@ Item {
 
   function popView() {
     if (root.view === "pick") { root.finishPick(null); root.dismiss(); return }
-    if (root.view === "menu" && root.menuRoute !== "root") {
-      var it = root.menuTree.items[root.menuRoute]
-      if (it && it.parent && it.parent !== "root") { root.openMenu(it.parent); return }
+    var it = root.view === "menu" ? root.menuTree.items[root.menuRoute] : null
+    if (it && it.parent && it.parent !== "root") {
+      root.openMenu(it.parent)
+    } else {
+      root.view = "root"
+      root.menuRoute = "root"
+      root.query = ""
+      input.text = ""
+      root.rebuild()
     }
-    root.view = "root"
-    root.query = ""
-    input.text = ""
-    root.rebuild()
+    Qt.callLater(function() { input.forceActiveFocus() })
+  }
+
+  function backspacePill(event) {
+    // Only a fresh Backspace at the text's left boundary removes a pill.
+    // Text selection, word deletion and IME composition belong to TextInput.
+    if (root.view === "root" || event.isAutoRepeat
+        || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+        || input.cursorPosition !== 0 || input.selectionStart !== input.selectionEnd
+        || input.preeditText.length > 0) return false
+    var query = input.text
+    root.actionsOpen = false
+    root.popView()
+    if (root.opened && query) {
+      root.setQuery(query)
+      input.text = query
+      input.cursorPosition = 0
+    }
+    return true
   }
 
   function move(delta) {
@@ -1318,8 +1339,8 @@ Item {
               } else if (ctrl && key === Qt.Key_K) {
                 root.actionsOpen = !root.actionsOpen && root.selectedActions.length > 0
                 root.actionIndex = 0
-              } else if (key === Qt.Key_Backspace && !input.text && root.view !== "root" && root.view !== "pick") {
-                root.popView()
+              } else if (key === Qt.Key_Backspace) {
+                if (!root.backspacePill(event)) { event.accepted = false; return }
               } else if (key === Qt.Key_Down || (ctrl && (key === Qt.Key_N || key === Qt.Key_J))) {
                 if (root.actionsOpen) root.actionIndex = Math.min(root.selectedActions.length - 1, root.actionIndex + 1)
                 else root.move(1)
