@@ -1,25 +1,27 @@
 #!/bin/bash
-# Link ./plugin into omarchy-shell as sehl.omarcast and (re)load it.
-#
-# omarchy-shell's inotify watcher doesn't follow symlinks, and its in-place
-# plugin reload keeps serving cached QML/JS, so by default this restarts
-# omarchy-shell (the bar blinks once). --no-restart only re-links.
+# Deploy this checkout as a normal, validated user plugin directory. Omarchy
+# rejects symlinked packages; the Git checkout remains the editable source.
 set -euo pipefail
+case ${1:-} in
+  ""|--no-restart) ;;
+  *) printf 'Usage: omarcast-install [--no-restart]\n' >&2; exit 1 ;;
+esac
 src="$(cd "$(dirname "$(readlink -f "$0")")/../plugin" && pwd)"
 dest="$HOME/.config/omarchy/plugins/sehl.omarcast"
 
-rm -f "$dest"
-sleep 0.3
-ln -s "$src" "$dest"
+omarchy plugin validate "$src"
+if [[ -L "$dest" ]]; then
+  rm -- "$dest"
+elif [[ -e "$dest" && ! -d "$dest" ]]; then
+  printf 'Not a plugin directory: %s\n' "$dest" >&2
+  exit 1
+fi
+mkdir -p "$dest"
+rsync -a --delete --exclude='.git/' "$src/" "$dest/"
+omarchy plugin validate "$dest"
+printf 'Omarcast deployed: %s -> %s\n' "$src" "$dest"
 
 if [[ ${1:-} != --no-restart ]]; then
-  omarchy restart shell >/dev/null 2>&1 || omarchy-restart-shell
+  omarchy restart shell
+  omarchy plugin enable sehl.omarcast
 fi
-
-# Wait for the shell's rescan to see the plugin before checking enablement.
-for _ in $(seq 1 20); do
-  omarchy plugin list 2>/dev/null | grep -q '^sehl.omarcast ' && break
-  sleep 0.5
-done
-omarchy plugin list | grep -q '^sehl.omarcast .*enabled' || omarchy plugin enable sehl.omarcast
-echo "omarcast linked: $dest -> $src"

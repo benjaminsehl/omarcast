@@ -3,6 +3,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "lib/Calc.js" as Calc
 import "lib/Search.js" as Search
@@ -26,16 +27,16 @@ Item {
 
   // ------------------------------------------------------------ theme tokens
   // Same [menu] surface tokens as the Omarchy menu, emojis and clipboard.
-  property color background: Color.menu.background
-  property color foreground: Color.menu.text
-  property color border: Color.menu.border
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color border: Commons.Color.menu.border
   property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
-  property color scrim: Color.menu.scrim
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color selectedBorder: Color.menu.selectedBorder
+  property color scrim: Commons.Color.menu.scrim
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color selectedText: Commons.Color.menu.selectedText
+  property color selectedBorder: Commons.Color.menu.selectedBorder
   property var selectedBorderSpec: Border.surfaceSpec("menu", "selected-border", selectedBorder, 0)
-  readonly property color accent: Color.accent
+  readonly property color accent: Commons.Color.accent
   readonly property color divider: Util.alpha(foreground, 0.14)
   readonly property int cornerRadius: Style.cornerRadius
   readonly property string fontFamily: Style.font.menuFamily
@@ -86,6 +87,11 @@ Item {
   property string pickMode: ""           // "" | "select" | "input"
   property string pickPrompt: ""
   property var pickOptions: []
+  property bool pickMultiple: false
+  property var pickSelected: []
+  property var pickSaved: []
+  property var pickOnChange: []
+  property string pickChangeKey: ""
   property string pickSelectionFile: ""
   property string pickDoneFile: ""
   property string pendingPayload: ""     // a route request that arrived before the menu loaded
@@ -178,6 +184,14 @@ Item {
     root.pickMode = payload.mode === "input" ? "input" : "select"
     root.pickPrompt = String(payload.prompt || "")
     root.pickOptions = Array.isArray(payload.options) ? payload.options : []
+    root.pickMultiple = root.pickMode === "select" && payload.multiple === true
+    root.pickOnChange = root.pickMultiple && Array.isArray(payload.onChange)
+      && payload.onChange.every(function(arg) { return typeof arg === "string" }) ? payload.onChange : []
+    root.pickChangeKey = String(payload.changeKey || JSON.stringify(root.pickOnChange))
+    root.pickSelected = Sources.pickerSelections(root.pickOptions, Array.isArray(payload.selected) ? payload.selected : [], root.pickOnChange.length > 0)
+    root.pickSaved = root.pickSelected
+    var pending = pickerChange.requestedSelection(root.pickChangeKey)
+    if (root.pickOnChange.length > 0 && pending) root.pickSelected = Sources.pickerSelections(root.pickOptions, pending, true)
     root.pickSelectionFile = String(payload.selectionFile || "")
     root.pickDoneFile = String(payload.doneFile || "")
     root.view = "pick"
@@ -205,7 +219,22 @@ Item {
   }
 
   function choosePick(value) {
+    if (root.pickMultiple) {
+      var values = root.pickSelected.slice()
+      var at = values.indexOf(value)
+      if (at < 0) values.push(value)
+      else values.splice(at, 1)
+      root.pickSelected = Sources.pickerSelections(root.pickOptions, values, root.pickOnChange.length > 0)
+      if (root.pickOnChange.length > 0) pickerChange.enqueue(root.pickSelected)
+      root.rebuild(true)
+      return
+    }
     root.finishPick(value)
+    root.dismiss()
+  }
+
+  function applyPicker() {
+    root.finishPick(JSON.stringify(root.pickSelected))
     root.dismiss()
   }
 
@@ -240,7 +269,7 @@ Item {
   function refreshApps() {
     var entries = []
     if (root.appLibrary && typeof root.appLibrary.sortedEntries === "function") {
-      entries = root.appLibrary.sortedEntries("")
+      entries = root.appLibrary.sortedEntries("").map(function(row) { return row.entry })
       if (typeof root.appLibrary.refreshIcons === "function") root.appLibrary.refreshIcons()
     } else {
       entries = DesktopEntries.applications.values || []
@@ -262,6 +291,15 @@ Item {
       }))
     }
     root.appRows = out
+  }
+
+  Connections {
+    target: root.appLibrary
+    function onAppsChanged() {
+      if (!root.opened) return
+      root.refreshApps()
+      root.rebuild(true)
+    }
   }
 
   function applyMenu() {
@@ -356,11 +394,14 @@ Item {
     if (root.pickMode === "input")
       return [{ id: "", kind: "pick-input", title: root.query || "Type, then press Enter", subtitle: "", glyph: "󰌌", _section: "" }]
     var out = []
+    if (root.pickMultiple && root.pickOnChange.length === 0)
+      out.push({ id: "", kind: "pick-apply", title: "Apply Selection", subtitle: root.pickSelected.length + " selected", glyph: "󰄬", _section: "" })
     var q = root.query.trim().toLowerCase()
     for (var i = 0; i < root.pickOptions.length; i++) {
       var o = Sources.pickOption(root.pickOptions[i], i)
       if (q && o.label.toLowerCase().indexOf(q) < 0 && o.detail.toLowerCase().indexOf(q) < 0) continue
-      out.push({ id: "", kind: "pick", title: o.label, subtitle: o.detail, glyph: o.glyph, value: o.value, _section: "" })
+      var glyph = root.pickMultiple ? (root.pickSelected.indexOf(o.value) >= 0 ? "󰄲" : "󰄱") : o.glyph
+      out.push({ id: "", kind: "pick", title: o.label, subtitle: o.detail, glyph: glyph, value: o.value, _section: "" })
     }
     return out
   }
@@ -628,7 +669,7 @@ Item {
   }
 
   function popView() {
-    if (root.view === "pick") { root.choosePick(null); return }
+    if (root.view === "pick") { root.finishPick(null); root.dismiss(); return }
     if (root.view === "menu" && root.menuRoute !== "root") {
       var it = root.menuTree.items[root.menuRoute]
       if (it && it.parent && it.parent !== "root") { root.openMenu(it.parent); return }
@@ -678,7 +719,8 @@ Item {
     if (k === "omarchy-menu") return [
       act("Open", "󰁔", "↵", function() { if (row.id) root.recordUse(row.id); root.openMenu(row.route) })
     ]
-    if (k === "pick") return [act("Select", "󰄬", "↵", function() { root.choosePick(row.value) })]
+    if (k === "pick-apply") return [act("Apply Selection", "󰄬", "↵", function() { root.applyPicker() })]
+    if (k === "pick") return [act(root.pickMultiple ? "Toggle Selection" : "Select", "󰄬", "↵", function() { root.choosePick(row.value) })]
     if (k === "pick-input") return [act("Submit", "󰄬", "↵", function() { root.choosePick(root.query) })]
     if (k === "omarchy-cli") return [
       act(row.args ? "Type Arguments…" : "Run in Terminal", "", "↵", function() {
@@ -897,6 +939,52 @@ Item {
         for (var i = 0; i < rows.length; i++) Search.prepare(rows[i])
         root.cliRows = rows
       }
+    }
+  }
+
+  Process {
+    id: pickerChange
+    property var queue: []
+    property string changeKey: ""
+    property var selected: []
+    property string collected: ""
+    function requestedSelection(key) {
+      for (var i = queue.length - 1; i >= 0; i--) if (queue[i].key === key) return queue[i].selected
+      return running && changeKey === key ? selected : null
+    }
+    function enqueue(values) {
+      var selected = Sources.pickerSelections(root.pickOptions, values, true)
+      queue = queue.concat([{ key: root.pickChangeKey, selected: selected,
+        command: root.pickOnChange.concat([JSON.stringify(selected)]) }])
+      if (!running) startNext()
+    }
+    function startNext() {
+      if (queue.length === 0) return
+      var next = queue[0]
+      queue = queue.slice(1)
+      changeKey = next.key
+      selected = next.selected
+      collected = ""
+      command = next.command
+      running = true
+    }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: pickerChange.collected = text
+    }
+    onExited: function(exitCode) {
+      if (root.pickMode === "select" && root.pickOnChange.length > 0 && changeKey === root.pickChangeKey) {
+        if (exitCode === 0) {
+          var applied = selected
+          if (collected.trim()) {
+            try { applied = JSON.parse(collected) } catch (e) { applied = root.pickSelected }
+          }
+          if (Array.isArray(applied)) root.pickSelected = Sources.pickerSelections(root.pickOptions, applied, true)
+          root.pickSaved = root.pickSelected
+        } else root.pickSelected = root.pickSaved
+        root.rebuild(true)
+      }
+      startNext()
     }
   }
 

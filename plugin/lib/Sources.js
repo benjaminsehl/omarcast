@@ -356,6 +356,16 @@ function providerRows(menuId, key, raw, shellQuote) {
   return rows
 }
 
+// Stock picker semantics: option order for Apply, selection order for an
+// immediate onChange command; discard missing values and duplicate selections.
+function pickerSelections(options, selected, preserveOrder) {
+  var allowed = (options || []).map(function(raw, i) { return pickOption(raw, i).value })
+  return (preserveOrder ? selected : allowed).filter(function(value, index, values) {
+    return typeof value === "string" && allowed.indexOf(value) >= 0
+      && selected.indexOf(value) >= 0 && values.indexOf(value) === index
+  })
+}
+
 // "<glyph>\t<label>\t<detail>" | "<label>" → picker option
 function pickOption(raw, index) {
   var parts = String(raw || "").split("\t")

@@ -88,6 +88,13 @@ Keys: `↵` primary action · `Ctrl+↵` secondary · `Ctrl+K` action panel · `
 Usage is remembered (`~/.local/state/omarcast/history.json`) and boosts ranking;
 the empty query shows Recent, Commands, Applications.
 
+## Compatibility
+
+Current Omarchy app-library wrappers are unwrapped and theme colors use an explicit
+Commons alias. Stock multiple/immediate-change pickers preserve selection order,
+Apply behavior and rollback. The installer validates and copies the package;
+symlinked plugins are rejected by current Omarchy.
+
 ## Layout
 
 ```
