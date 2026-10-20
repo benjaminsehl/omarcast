@@ -56,6 +56,9 @@ Root search, type-first:
 |---|---|
 | `firefox`, `chrom` | Applications (Omarchy's app library: hidden entries, icons, launch feedback) |
 | `theme`, `lock`, `wifi` | Every Omarchy menu action; submenus/pickers open the Omarchy menu at that spot |
+| `app/fac` | Scope to applications: matched letters in **App**lication and **Fac**torio are highlighted |
+| `stheme` | Fuzzy-match the complete breadcrumb **Style › Theme**, ahead of scattered CLI matches |
+| `shortcuts`, `shortcut/workspace` | Live Omarchy/default and personal keyboard shortcuts; Enter copies, Ctrl+Enter opens the full action picker |
 | `omarchy theme` | `omarchy` CLI commands (run in a terminal, or prefill args) |
 | `1+1`, `2^10`, `sqrt(2)`, `20% of 50`, `5!`, `0xff`, `255 to hex` | Calculator card |
 | `32F`, `5 km`, `6 ft in cm`, `1 GiB to MB`, `90 min to h` | Unit conversion card (length, mass, volume, area, speed, time, data, energy, angle, temperature) |
@@ -80,23 +83,72 @@ Built-in commands (each opens its own view; Backspace on empty / Esc goes back):
 - **Search Emoji & Symbols** – paste or copy
 - **Switch Windows** – focus or close
 - **Search Files** – `fd` over `~`, with preview pane
+- **Keyboard Shortcuts** – the live `omarchy menu keybindings --print` index; Super+K still opens the stock actionable picker
 - **Edit Quicklinks / Edit Snippets** – `~/.config/omarcast/{quicklinks,snippets}.json` (see `examples/`)
 
 Keys: `↵` primary action · `Ctrl+↵` secondary · `Ctrl+K` action panel · `↑↓` / `Ctrl+N/P` ·
 `Tab` opens a command's view · `Esc` clears → back → close.
 
-Usage is remembered (`~/.local/state/omarcast/history.json`) and boosts ranking;
-the empty query shows Recent, Commands, Applications.
+`Backspace` at the start of the search (including an empty search) removes the
+innermost submenu/view pill. Existing search text is retained when stepping out.
+Ordinary text selection/deletion, modifier shortcuts and IME composition still
+belong to the text field. Holding Backspace to clear text does not eat the pills.
+Removing a script-picker pill cancels it without applying any selection.
+
+Fuzzy ranking uses the scoring formula from [`tobi/try`](https://github.com/tobi/try):
+word starts, proximity, early-match density and shorter names. A menu breadcrumb is
+one structured name, so `stheme` matches `Style › Theme` rather than unrelated CLI
+text. There are no categorical prefix/initialism tiers overriding those scores.
+The UI shows and highlights the full breadcrumb when that is what matched.
+Unrelated metadata fields stay separate and are discounted; scopes search names only.
+
+Usage is remembered (`~/.local/state/omarcast/history.json`) and breaks equal-score
+ties; the empty query shows Recent, Commands, Applications.
+
+## Running applications
+
+Running applications show **Application · Switch to → Desktop 3** on the right.
+Enter switches to their most recently focused window instead of starting another
+instance; **Launch Application** remains available in the action panel. Association
+uses desktop IDs, declared startup classes and Quickshell's desktop-entry lookup,
+never window titles. Chrome app-mode windows must match explicitly, keeping them
+separate from normal browser windows and from other app profiles. Open, close,
+focus and desktop-change events refresh the snapshot while the palette is open.
+Window activation resolves the target live and switches its desktop before focusing
+it; a window closed since the snapshot cannot materialize an empty desktop.
+
+By default the desktop label uses Hyprland's workspace name. Custom desktop models
+can provide their displayed labels with an optional argv array in
+`~/.config/omarcast/config.json`:
+
+```json
+{ "workspaceLabelsCommand": ["my-desktop-labels", "--json"] }
+```
+
+The command writes a JSON object mapping exact workspace names to display labels,
+for example `{"work":"Desktop 3"}`. It runs locally on open/explicit refresh and on
+relevant compositor events while open; no shell interpolation is performed. Only
+configure a command you trust. Until a configured provider supplies a label, the UI
+shows `Desktop…` rather than exposing an internal workspace name. Use the desktop
+model's authoritative current numbering, not a parked desktop's home number.
+
+## Compatibility
+
+Current Omarchy app-library wrappers are unwrapped and theme colors use an explicit
+Commons alias. Stock multiple/immediate-change pickers preserve selection order,
+Apply behavior and rollback. The installer validates and copies the package;
+symlinked plugins are rejected by current Omarchy.
 
 ## Layout
 
 ```
-plugin/              the shell plugin (linked into ~/.config/omarchy/plugins/sehl.omarcast)
+plugin/              source, copied into ~/.config/omarchy/plugins/sehl.omarcast
   Omarcast.qml       UI, views, actions, data sources
   lib/Calc.js        calculator, units, currency, bases
   lib/Search.js      ranking + frecency
+  lib/RunningApps.js  running-window association, desktop labels, safe activation
   lib/Sources.js     Omarchy menu/CLI parsing, windows, quicklinks, time zones, snippets
-bin/omarcast-install link/reload the plugin (--restart restarts omarchy-shell)
+bin/omarcast-install validate/copy/reload the plugin (--no-restart only deploys files)
 bin/omarcast-ui      toggle from a shell: omarcast-ui [clipboard|emoji|windows|files] [query]
 dev/                 standalone harness (real Omarchy Commons/Ui) + screenshot helper
 test/                node tests for lib/*.js
@@ -105,13 +157,21 @@ test/                node tests for lib/*.js
 ## Develop
 
 ```bash
-npm test                          # calculator + sources tests
+npm test                         # portable calculator, search, navigation and running-app tests
+npm run test:integration          # real Omarchy menu/CLI, live bindings and compositor
+npm run test:live                 # live picker contracts and non-focusing UI previews
 ./bin/omarcast-install            # load edits (restarts omarchy-shell; cached QML otherwise)
 qs -p dev                         # run standalone with QML errors on stdout
 dev/shot '{"query":"32F"}'        # harness + screenshot to /tmp/omarcast-shot.png
 ```
 
+Edit the Git checkout and rerun `./bin/omarcast-install`; do not edit the deployed
+copy. Symlinked plugin packages are rejected by current Omarchy validation.
+Search highlights are separate PlainText runs, so names cannot inject markup.
+Category prefixes such as `app/`, `menu/`, `shortcut/`, `window/` and `cli/`
+restrict matching to visible names; `app/` alone lists applications.
+
 Bar icon: set `barIcon` / `barIconFont` in `~/.config/omarcast/config.json`.
 
 Uninstall: `omarchy plugin disable sehl.omarcast` (the stock Omarchy menu comes back) and
-`rm ~/.config/omarchy/plugins/sehl.omarcast`.
+`rm -r ~/.config/omarchy/plugins/sehl.omarcast`.

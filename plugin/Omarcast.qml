@@ -1,12 +1,15 @@
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "lib/Calc.js" as Calc
 import "lib/Search.js" as Search
 import "lib/Sources.js" as Sources
+import "lib/RunningApps.js" as RunningApps
 
 // Omarcast — a Raycast-style palette living inside omarchy-shell, so it
 // shares the menu's theme tokens, fonts, borders and corner rounding.
@@ -26,16 +29,16 @@ Item {
 
   // ------------------------------------------------------------ theme tokens
   // Same [menu] surface tokens as the Omarchy menu, emojis and clipboard.
-  property color background: Color.menu.background
-  property color foreground: Color.menu.text
-  property color border: Color.menu.border
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color border: Commons.Color.menu.border
   property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
-  property color scrim: Color.menu.scrim
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color selectedBorder: Color.menu.selectedBorder
+  property color scrim: Commons.Color.menu.scrim
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color selectedText: Commons.Color.menu.selectedText
+  property color selectedBorder: Commons.Color.menu.selectedBorder
   property var selectedBorderSpec: Border.surfaceSpec("menu", "selected-border", selectedBorder, 0)
-  readonly property color accent: Color.accent
+  readonly property color accent: Commons.Color.accent
   readonly property color divider: Util.alpha(foreground, 0.14)
   readonly property int cornerRadius: Style.cornerRadius
   readonly property string fontFamily: Style.font.menuFamily
@@ -48,6 +51,8 @@ Item {
   property bool opened: false
   property string view: "root"           // root | clipboard | emoji | windows | files
   property string query: ""
+  readonly property var parsedQuery: Search.parseQuery(root.query)
+  property bool preview: false
   property int selectedIndex: 0
   property var rows: []                  // rows currently displayed (parallel to displayModel)
   property bool actionsOpen: false
@@ -59,7 +64,13 @@ Item {
   property var appRows: []
   property var menuRows: []
   property var cliRows: []
+  property var keybindingRows: []
   property var windowRows: []
+  property var workspaceLabels: ({})
+  property var workspaceLabelsCommand: []
+  property bool windowsRefreshPending: false
+  readonly property var runningAppRows: RunningApps.annotate(root.appRows, root.windowRows,
+    root.workspaceLabels, root.workspaceLabelsCommand.length > 0)
   property var snippetRows: []
   property var links: Sources.quicklinks("")
   property var zones: []
@@ -86,6 +97,11 @@ Item {
   property string pickMode: ""           // "" | "select" | "input"
   property string pickPrompt: ""
   property var pickOptions: []
+  property bool pickMultiple: false
+  property var pickSelected: []
+  property var pickSaved: []
+  property var pickOnChange: []
+  property string pickChangeKey: ""
   property string pickSelectionFile: ""
   property string pickDoneFile: ""
   property string pendingPayload: ""     // a route request that arrived before the menu loaded
@@ -97,7 +113,8 @@ Item {
     "clipboard": { title: "Clipboard History", glyph: "󰅌", placeholder: "Search clipboard…" },
     "emoji": { title: "Emoji", glyph: "󰞅", placeholder: "Search emoji…" },
     "windows": { title: "Switch Windows", glyph: "󱂬", placeholder: "Search open windows…" },
-    "files": { title: "Search Files", glyph: "󰈞", placeholder: "Search files in ~…" }
+    "files": { title: "Search Files", glyph: "󰈞", placeholder: "Search files in ~…" },
+    "keybindings": { title: "Keyboard Shortcuts", glyph: "󰌌", placeholder: "Search Omarchy shortcuts…" }
   })
 
   function computeViewInfo(view, route, prompt, tree) {
@@ -118,6 +135,7 @@ Item {
     { id: "cmd:emoji", kind: "command", title: "Search Emoji & Symbols", subtitle: "Omarcast", glyph: "󰞅", keywords: ["emoji", "emojis", "symbols", "smiley"], targetView: "emoji" },
     { id: "cmd:windows", kind: "command", title: "Switch Windows", subtitle: "Omarcast", glyph: "󱂬", keywords: ["windows", "switch", "focus", "alt tab"], targetView: "windows" },
     { id: "cmd:files", kind: "command", title: "Search Files", subtitle: "Omarcast", glyph: "󰈞", keywords: ["files", "find", "open file", "documents"], targetView: "files" },
+    { id: "cmd:keybindings", kind: "command", title: "Keyboard Shortcuts", subtitle: "Live Omarchy defaults and personal bindings", glyph: "󰌌", keywords: ["hotkeys", "shortcuts", "keybindings", "super k"], targetView: "keybindings" },
     { id: "cmd:omarchy-menu", kind: "command", title: "Omarchy Menu", subtitle: "Omarchy", glyph: "", keywords: ["menu", "go", "settings"], menuRoute: "root" },
     { id: "cmd:edit-quicklinks", kind: "command", title: "Edit Quicklinks", subtitle: "Omarcast", glyph: "󰌷", keywords: ["quicklink", "bookmarks", "settings"], editFile: "quicklinks.json" },
     { id: "cmd:edit-snippets", kind: "command", title: "Edit Snippets", subtitle: "Omarcast", glyph: "󰅍", keywords: ["snippet", "text", "settings"], editFile: "snippets.json" },
@@ -132,6 +150,7 @@ Item {
   function open(payloadJson) {
     var payload = {}
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) { payload = {} }
+    root.preview = payload.preview === true
     if (root.pickMode) root.finishPick(null)   // a new request supersedes a pending picker
     if (payload.mode === "select" || payload.mode === "input") { root.openPicker(payload); return }
 
@@ -157,7 +176,8 @@ Item {
     root.actionsOpen = false
     root.opened = true
     root.refreshApps()
-    windowsProc.running = true
+    root.refreshWindows()
+    keybindingsProc.running = true
     root.maybeFetchRates()
     pointerGate.reset()
     if (root.view === "files") { root.fileRows = []; filesDebounce.restart() }
@@ -178,6 +198,14 @@ Item {
     root.pickMode = payload.mode === "input" ? "input" : "select"
     root.pickPrompt = String(payload.prompt || "")
     root.pickOptions = Array.isArray(payload.options) ? payload.options : []
+    root.pickMultiple = root.pickMode === "select" && payload.multiple === true
+    root.pickOnChange = root.pickMultiple && Array.isArray(payload.onChange)
+      && payload.onChange.every(function(arg) { return typeof arg === "string" }) ? payload.onChange : []
+    root.pickChangeKey = String(payload.changeKey || JSON.stringify(root.pickOnChange))
+    root.pickSelected = Sources.pickerSelections(root.pickOptions, Array.isArray(payload.selected) ? payload.selected : [], root.pickOnChange.length > 0)
+    root.pickSaved = root.pickSelected
+    var pending = pickerChange.requestedSelection(root.pickChangeKey)
+    if (root.pickOnChange.length > 0 && pending) root.pickSelected = Sources.pickerSelections(root.pickOptions, pending, true)
     root.pickSelectionFile = String(payload.selectionFile || "")
     root.pickDoneFile = String(payload.doneFile || "")
     root.view = "pick"
@@ -205,7 +233,22 @@ Item {
   }
 
   function choosePick(value) {
+    if (root.pickMultiple) {
+      var values = root.pickSelected.slice()
+      var at = values.indexOf(value)
+      if (at < 0) values.push(value)
+      else values.splice(at, 1)
+      root.pickSelected = Sources.pickerSelections(root.pickOptions, values, root.pickOnChange.length > 0)
+      if (root.pickOnChange.length > 0) pickerChange.enqueue(root.pickSelected)
+      root.rebuild(true)
+      return
+    }
     root.finishPick(value)
+    root.dismiss()
+  }
+
+  function applyPicker() {
+    root.finishPick(JSON.stringify(root.pickSelected))
     root.dismiss()
   }
 
@@ -218,6 +261,27 @@ Item {
   function toggle() { if (root.opened) root.dismiss(); else root.open("{}") }
   function refresh() { root.reloadAll(); return "ok" }
   function ping() { return "ok" }
+  function status(payloadJson) {
+    var payload = {}
+    try { if (payloadJson) payload = JSON.parse(payloadJson) } catch (e) { }
+    var query = payload.query === undefined ? root.query : String(payload.query)
+    var parsed = Search.parseQuery(query)
+    var rows = payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
+    return JSON.stringify({ opened: root.opened, view: root.view, menuRoute: root.menuRoute, query: query,
+      counts: { apps: root.appRows.length, menu: root.menuRows.length,
+        cli: root.cliRows.length, shortcuts: root.keybindingRows.length },
+      picker: { mode: root.pickMode, multiple: root.pickMultiple, selected: root.pickSelected },
+      results: rows.slice(0, 8).map(function(row) {
+        var display = Search.displayText(row, query)
+        return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
+          kind: row.kind, shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          running: !!row.runningWindow, location: row.runningLocation || "",
+          targetAddress: row.runningWindow ? row.runningWindow.address : "",
+          accessory: root.rowAccessory(row),
+          titleMatch: Search.matchPositions(display, parsed.text),
+          kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope) }
+      }) })
+  }
 
   Component.onCompleted: {
     mkdirProc.running = true
@@ -230,7 +294,10 @@ Item {
     userMenuFile.reload()
     quicklinksFile.reload()
     snippetsFile.reload()
+    configFile.reload()
+    root.refreshWindows()
     cliProc.running = true
+    keybindingsProc.running = true
     root.refreshApps()
     root.maybeFetchRates(true)
   }
@@ -240,7 +307,7 @@ Item {
   function refreshApps() {
     var entries = []
     if (root.appLibrary && typeof root.appLibrary.sortedEntries === "function") {
-      entries = root.appLibrary.sortedEntries("")
+      entries = root.appLibrary.sortedEntries("").map(function(row) { return row.entry })
       if (typeof root.appLibrary.refreshIcons === "function") root.appLibrary.refreshIcons()
     } else {
       entries = DesktopEntries.applications.values || []
@@ -258,10 +325,20 @@ Item {
         subtitle: String(e.genericName || e.comment || ""),
         keywords: kw.concat([String(e.comment || ""), String(e.id)]),
         icon: String(e.icon || ""),
-        appId: String(e.id)
+        appId: String(e.id),
+        startupClass: String(e.startupClass || "")
       }))
     }
     root.appRows = out
+  }
+
+  Connections {
+    target: root.appLibrary
+    function onAppsChanged() {
+      if (!root.opened) return
+      root.refreshApps()
+      root.rebuild(true)
+    }
   }
 
   function applyMenu() {
@@ -301,6 +378,7 @@ Item {
       kind: isAction ? "omarchy" : "omarchy-menu",
       title: (it.label || it.id) + (checked ? "  ✓" : ""),
       subtitle: withPath ? Sources.menuPath(root.menuTree, it.parent) : (it.description || ""),
+      path: [Sources.menuPath(root.menuTree, it.parent), (it.label || it.id) + (checked ? "  ✓" : "")].filter(function(part) { return part !== "" }).join(" › "),
       glyph: it.icon || "",
       glyphFont: it.iconFont || "",
       command: it.action || "",
@@ -313,7 +391,7 @@ Item {
     var route = root.menuRoute
     var q = root.query.trim()
     if (route === "apps") {
-      var apps = q ? Search.rank(root.appRows, q, root.history, 60) : root.appRows.slice()
+      var apps = q ? Search.rank(root.runningAppRows, q, root.history, 60) : root.runningAppRows.slice()
       return root.sectioned(apps, "")
     }
     var it = root.menuTree.items[route]
@@ -356,11 +434,14 @@ Item {
     if (root.pickMode === "input")
       return [{ id: "", kind: "pick-input", title: root.query || "Type, then press Enter", subtitle: "", glyph: "󰌌", _section: "" }]
     var out = []
+    if (root.pickMultiple && root.pickOnChange.length === 0)
+      out.push({ id: "", kind: "pick-apply", title: "Apply Selection", subtitle: root.pickSelected.length + " selected", glyph: "󰄬", _section: "" })
     var q = root.query.trim().toLowerCase()
     for (var i = 0; i < root.pickOptions.length; i++) {
       var o = Sources.pickOption(root.pickOptions[i], i)
       if (q && o.label.toLowerCase().indexOf(q) < 0 && o.detail.toLowerCase().indexOf(q) < 0) continue
-      out.push({ id: "", kind: "pick", title: o.label, subtitle: o.detail, glyph: o.glyph, value: o.value, _section: "" })
+      var glyph = root.pickMultiple ? (root.pickSelected.indexOf(o.value) >= 0 ? "󰄲" : "󰄱") : o.glyph
+      out.push({ id: "", kind: "pick", title: o.label, subtitle: o.detail, glyph: glyph, value: o.value, _section: "" })
     }
     return out
   }
@@ -427,7 +508,7 @@ Item {
   function allSearchRows() {
     var out = root.builtinCommands.slice()
     for (var i = 0; i < root.menuRows.length; i++) if (root.visibleMenuRow(root.menuRows[i])) out.push(root.menuRows[i])
-    return out.concat(root.appRows, root.windowRows, root.snippetRows, root.cliRows)
+    return out.concat(root.runningAppRows, root.windowRows, root.snippetRows, root.cliRows, root.keybindingRows)
   }
 
   function sectioned(list, section) {
@@ -451,7 +532,7 @@ Item {
       for (var t = 0; t < top.length; t++) if (root.visibleItem(top[t])) omarchyRows.push(root.menuItemRow(top[t], false))
       out = out.concat(root.sectioned(omarchyRows.filter(function(r) { return !recent.some(function(x) { return x.id === r.id }) }), "Omarchy"))
       out = out.concat(root.sectioned(cmds.filter(function(r) { return recent.indexOf(r) < 0 }), "Commands"))
-      out = out.concat(root.sectioned(root.appRows.filter(function(r) { return recent.indexOf(r) < 0 }), "Applications"))
+      out = out.concat(root.sectioned(root.runningAppRows.filter(function(r) { return recent.indexOf(r) < 0 }), "Applications"))
       return out
     }
 
@@ -463,6 +544,11 @@ Item {
         { id: "", kind: "shell", title: cmd, subtitle: "Run in terminal", glyph: "", command: cmd, terminal: true, _section: "Shell" },
         { id: "", kind: "shell", title: cmd, subtitle: "Run in background", glyph: "󰜎", command: cmd, terminal: false, _section: "Shell" }
       ]
+    }
+
+    var parsed = Search.parseQuery(q)
+    if (parsed.scoped) {
+      return root.sectioned(Search.rank(root.allSearchRows(), q, root.history, 100), "Matching " + parsed.scope + "/" + parsed.text)
     }
 
     var calc = Calc.evaluate(q, root.rates)
@@ -487,7 +573,7 @@ Item {
     if (url) out.push({ id: "", kind: "url", title: "Open " + url.replace(/^https?:\/\//, ""), subtitle: url, glyph: "󰖟", url: url, _section: "Quicklink" })
 
     // With a calculator/clock card, only keep strong text matches (no fuzzy noise).
-    var ranked = Search.rank(root.allSearchRows(), q, root.history, 40, out.length > 0 ? 500 : 0)
+    var ranked = Search.rank(root.allSearchRows(), q, root.history, 40, out.length > 0 ? 1 : 0)
     out = out.concat(root.sectioned(ranked, "Results"))
 
     // Typed text goes to the default Omarchy agent. It leads the list when the
@@ -497,7 +583,8 @@ Item {
     var sentence = q.split(/\s+/).length >= 3 || /\?$/.test(q)
     // An answer card (calculator, clock) always stays on top.
     var hasCard = out.length > 0 && (out[0].kind === "calc" || out[0].kind === "clock")
-    if (agent && !hasCard && (sentence || ranked.length === 0)) {
+    var strongMatch = ranked.length > 0 && Search.textMatch(ranked[0], q, true).score >= 1
+    if (agent && !hasCard && !strongMatch && (sentence || ranked.length === 0)) {
       agent._section = "Ask"
       out = [agent].concat(out)
       agent = null
@@ -582,6 +669,13 @@ Item {
     return root.sectioned(list.slice(), "Open Windows")
   }
 
+  function keybindingViewRows() {
+    var list = root.query.trim()
+      ? Search.rank(root.keybindingRows, root.query, {}, root.keybindingRows.length)
+      : root.keybindingRows.slice()
+    return root.sectioned(list, "Omarchy shortcuts · Enter copies the chord · Super+K opens the action picker")
+  }
+
   // soft: a background data refresh — keep the selected row and action panel.
   function rebuild(soft) {
     // Only preserve a selection the user moved to; otherwise re-rank picks the top row.
@@ -591,6 +685,7 @@ Item {
     if (root.view === "clipboard") next = root.clipboardRows()
     else if (root.view === "emoji") next = root.emojiRows()
     else if (root.view === "windows") next = root.windowViewRows()
+    else if (root.view === "keybindings") next = root.keybindingViewRows()
     else if (root.view === "files") next = root.sectioned(root.fileRows.slice(), root.query ? "Files" : "")
     else if (root.view === "menu") next = root.menuViewRows()
     else if (root.view === "pick") next = root.pickRows()
@@ -622,21 +717,43 @@ Item {
     root.view = name
     root.query = ""
     input.text = ""
-    if (name === "windows") windowsProc.running = true
+    if (name === "windows") root.refreshWindows()
+    if (name === "keybindings") keybindingsProc.running = true
     if (name === "files") root.fileRows = []
     root.rebuild()
   }
 
   function popView() {
-    if (root.view === "pick") { root.choosePick(null); return }
-    if (root.view === "menu" && root.menuRoute !== "root") {
-      var it = root.menuTree.items[root.menuRoute]
-      if (it && it.parent && it.parent !== "root") { root.openMenu(it.parent); return }
+    if (root.view === "pick") { root.finishPick(null); root.dismiss(); return }
+    var it = root.view === "menu" ? root.menuTree.items[root.menuRoute] : null
+    if (it && it.parent && it.parent !== "root") {
+      root.openMenu(it.parent)
+    } else {
+      root.view = "root"
+      root.menuRoute = "root"
+      root.query = ""
+      input.text = ""
+      root.rebuild()
     }
-    root.view = "root"
-    root.query = ""
-    input.text = ""
-    root.rebuild()
+    Qt.callLater(function() { input.forceActiveFocus() })
+  }
+
+  function backspacePill(event) {
+    // Only a fresh Backspace at the text's left boundary removes a pill.
+    // Text selection, word deletion and IME composition belong to TextInput.
+    if (root.view === "root" || event.isAutoRepeat
+        || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+        || input.cursorPosition !== 0 || input.selectionStart !== input.selectionEnd
+        || input.preeditText.length > 0) return false
+    var query = input.text
+    root.actionsOpen = false
+    root.popView()
+    if (root.opened && query) {
+      root.setQuery(query)
+      input.text = query
+      input.cursorPosition = 0
+    }
+    return true
   }
 
   function move(delta) {
@@ -656,10 +773,17 @@ Item {
   function actionsFor(row) {
     if (!row) return []
     var k = row.kind
-    if (k === "app") return [
-      act("Open Application", "󰏌", "↵", function() { root.launchApp(row) }),
-      act("Copy Name", "󰆏", "⌃↵", function() { root.copy(row.title) })
-    ]
+    if (k === "app") {
+      var actions = [
+        act(row.runningWindow ? "Switch to → " + row.runningLocation : "Open Application", "󰏌", "↵", function() {
+          if (row.runningWindow) { root.recordUse(row.id); root.focusWindow(row.runningWindow) }
+          else root.launchApp(row)
+        }),
+        act("Copy Name", "󰆏", "⌃↵", function() { root.copy(row.title) })
+      ]
+      if (row.runningWindow) actions.push(act("Launch Application", "󰏌", "", function() { root.launchApp(row) }))
+      return actions
+    }
     if (k === "command") {
       if (row.targetView) return [act("Open " + row.title, "󰁔", "↵", function() { root.recordUse(row.id); root.pushView(row.targetView) })]
       if (row.menuRoute) return [act("Open Omarchy Menu", "", "↵", function() { root.recordUse(row.id); root.openMenu(row.menuRoute) })]
@@ -678,8 +802,13 @@ Item {
     if (k === "omarchy-menu") return [
       act("Open", "󰁔", "↵", function() { if (row.id) root.recordUse(row.id); root.openMenu(row.route) })
     ]
-    if (k === "pick") return [act("Select", "󰄬", "↵", function() { root.choosePick(row.value) })]
+    if (k === "pick-apply") return [act("Apply Selection", "󰄬", "↵", function() { root.applyPicker() })]
+    if (k === "pick") return [act(root.pickMultiple ? "Toggle Selection" : "Select", "󰄬", "↵", function() { root.choosePick(row.value) })]
     if (k === "pick-input") return [act("Submit", "󰄬", "↵", function() { root.choosePick(root.query) })]
+    if (k === "keybinding") return [
+      act("Copy Shortcut", "󰆏", "↵", function() { root.copy(row.shortcut) }),
+      act("Open Full Shortcut Action Picker", "󰌌", "⌃↵", function() { root.runDetached("omarchy-menu-keybindings") })
+    ]
     if (k === "omarchy-cli") return [
       act(row.args ? "Type Arguments…" : "Run in Terminal", "", "↵", function() {
         if (row.args) { root.setQueryText("> " + row.command + " ") }
@@ -797,9 +926,11 @@ Item {
   }
 
   function focusWindow(row) {
+    var expression = RunningApps.focusExpression(row.address)
+    if (!expression) return
     root.recordUse(row.historyId)
     root.dismiss()
-    Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = \"address:" + row.address + "\" })"])
+    Quickshell.execDetached(["hyprctl", "dispatch", expression])
   }
 
   function closeWindow(row) {
@@ -901,18 +1032,136 @@ Item {
   }
 
   Process {
+    id: pickerChange
+    property var queue: []
+    property string changeKey: ""
+    property var selected: []
+    property string collected: ""
+    function requestedSelection(key) {
+      for (var i = queue.length - 1; i >= 0; i--) if (queue[i].key === key) return queue[i].selected
+      return running && changeKey === key ? selected : null
+    }
+    function enqueue(values) {
+      var selected = Sources.pickerSelections(root.pickOptions, values, true)
+      queue = queue.concat([{ key: root.pickChangeKey, selected: selected,
+        command: root.pickOnChange.concat([JSON.stringify(selected)]) }])
+      if (!running) startNext()
+    }
+    function startNext() {
+      if (queue.length === 0) return
+      var next = queue[0]
+      queue = queue.slice(1)
+      changeKey = next.key
+      selected = next.selected
+      collected = ""
+      command = next.command
+      running = true
+    }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: pickerChange.collected = text
+    }
+    onExited: function(exitCode) {
+      if (root.pickMode === "select" && root.pickOnChange.length > 0 && changeKey === root.pickChangeKey) {
+        if (exitCode === 0) {
+          var applied = selected
+          if (collected.trim()) {
+            try { applied = JSON.parse(collected) } catch (e) { applied = root.pickSelected }
+          }
+          if (Array.isArray(applied)) root.pickSelected = Sources.pickerSelections(root.pickOptions, applied, true)
+          root.pickSaved = root.pickSelected
+        } else root.pickSelected = root.pickSaved
+        root.rebuild(true)
+      }
+      startNext()
+    }
+  }
+
+  Process {
+    id: keybindingsProc
+    command: ["omarchy", "menu", "keybindings", "--print"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var rows = Sources.keybindingRows(text)
+        for (var i = 0; i < rows.length; i++) Search.prepare(rows[i])
+        root.keybindingRows = rows
+        if (root.opened) root.rebuild(true)
+      }
+    }
+  }
+
+  function refreshWindows() {
+    if (windowsProc.running || workspaceLabelsProc.running) { root.windowsRefreshPending = true; return }
+    windowsProc.running = true
+    if (root.workspaceLabelsCommand.length > 0) {
+      workspaceLabelsProc.command = root.workspaceLabelsCommand
+      workspaceLabelsProc.running = true
+    }
+  }
+
+  function finishWindowsRefresh() {
+    if (root.windowsRefreshPending && !windowsProc.running && !workspaceLabelsProc.running) {
+      root.windowsRefreshPending = false
+      root.refreshWindows()
+    }
+  }
+
+  Timer {
+    id: windowsRefresh
+    interval: 50
+    onTriggered: root.refreshWindows()
+  }
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (root.opened && /window|workspace|monitor|focusedmon/.test(event.name)) windowsRefresh.restart()
+    }
+  }
+
+  FileView {
+    id: configFile
+    path: root.configDir + "/config.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      root.workspaceLabelsCommand = RunningApps.labelsCommand(Sources.parseJsonc(text(), {}))
+      root.workspaceLabels = ({})
+      if (root.opened) root.refreshWindows()
+    }
+  }
+  Process {
+    id: workspaceLabelsProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.workspaceLabels = RunningApps.parseLabels(text)
+        if (root.opened) root.rebuild(true)
+      }
+    }
+    onExited: root.finishWindowsRefresh()
+  }
+
+  Process {
     id: windowsProc
     command: ["hyprctl", "clients", "-j"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         var rows = Sources.windowRows(text)
-        for (var i = 0; i < rows.length; i++) { rows[i].icon = root.windowIcon(rows[i].appClass); Search.prepare(rows[i]) }
+        for (var i = 0; i < rows.length; i++) {
+          rows[i].icon = root.windowIcon(rows[i].appClass)
+          var entry = DesktopEntries.heuristicLookup(rows[i].appClass)
+          rows[i].desktopId = entry ? String(entry.id) : ""
+          Search.prepare(rows[i])
+        }
         // The palette itself has focus; the focused window is the one we came from.
         root.windowRows = rows
-        if (root.opened && (root.view === "windows" || root.query)) root.rebuild(true)
+        if (root.opened) root.rebuild(true)
       }
     }
+    onExited: root.finishWindowsRefresh()
   }
 
   Process {
@@ -1070,7 +1319,7 @@ Item {
     WlrLayershell.namespace: "omarcast"
     WlrLayershell.layer: WlrLayer.Overlay
     // OMARCAST_NO_FOCUS=1 (dev harness only): render without grabbing the keyboard.
-    WlrLayershell.keyboardFocus: Quickshell.env("OMARCAST_NO_FOCUS") ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: root.preview || Quickshell.env("OMARCAST_NO_FOCUS") ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
     Rectangle { anchors.fill: parent; color: root.scrim }
@@ -1170,8 +1419,8 @@ Item {
               } else if (ctrl && key === Qt.Key_K) {
                 root.actionsOpen = !root.actionsOpen && root.selectedActions.length > 0
                 root.actionIndex = 0
-              } else if (key === Qt.Key_Backspace && !input.text && root.view !== "root" && root.view !== "pick") {
-                root.popView()
+              } else if (key === Qt.Key_Backspace) {
+                if (!root.backspacePill(event)) { event.accepted = false; return }
               } else if (key === Qt.Key_Down || (ctrl && (key === Qt.Key_N || key === Qt.Key_J))) {
                 if (root.actionsOpen) root.actionIndex = Math.min(root.selectedActions.length - 1, root.actionIndex + 1)
                 else root.move(1)
@@ -1249,6 +1498,7 @@ Item {
               required property int index
               required property int ri
               readonly property var row: root.rows[ri] || ({})
+              readonly property var searchMatch: Search.textMatch(row, root.parsedQuery.text, root.parsedQuery.scoped)
               readonly property bool hasCursor: index === root.selectedIndex
               readonly property bool isCard: row.kind === "calc" || row.kind === "clock"
               readonly property string imageSource: row.kind === "app" || row.kind === "window" ? root.iconSource(row.icon) : ""
@@ -1295,20 +1545,19 @@ Item {
                   }
                 }
 
-                Text {
+                MatchText {
                   id: titleText
                   anchors.left: iconSlot.right
                   anchors.leftMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
-                  width: Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55))
-                  textFormat: Text.PlainText
-                  text: rowItem.row.title || ""
+                  width: Math.max(0, Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55), accessory.x - x - Style.spacing.lg * 2))
+                  text: rowItem.searchMatch.text
+                  positions: Search.matchPositions(text, root.parsedQuery.text)
                   color: rowItem.hasCursor ? root.selectedText : root.foreground
+                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
                   font.weight: Font.Medium
-                  elide: Text.ElideRight
-                  maximumLineCount: 1
                 }
 
                 Text {
@@ -1318,7 +1567,7 @@ Item {
                   anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
-                  text: rowItem.row.subtitle || ""
+                  text: rowItem.searchMatch.field === "path" ? "" : rowItem.row.subtitle || ""
                   color: root.foreground
                   opacity: 0.5
                   font.family: root.fontFamily
@@ -1327,16 +1576,17 @@ Item {
                   maximumLineCount: 1
                 }
 
-                Text {
+                MatchText {
                   id: accessory
                   anchors.right: parent.right
                   anchors.rightMargin: Style.spacing.xl
                   anchors.verticalCenter: parent.verticalCenter
                   visible: !body.showDetail
-                  textFormat: Text.PlainText
-                  text: root.kindLabel(rowItem.row)
-                  color: root.foreground
-                  opacity: 0.4
+                  text: root.rowAccessory(rowItem.row)
+                  positions: Search.matchPositions(text, root.parsedQuery.scope)
+                  color: rowItem.hasCursor ? root.selectedText : root.foreground
+                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
+                  opacity: root.parsedQuery.scoped || rowItem.row.runningWindow ? 1.0 : 0.4
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }
@@ -1721,6 +1971,12 @@ Item {
     }
   }
 
+  function rowAccessory(row) {
+    if (row && row.kind === "app" && row.runningWindow)
+      return "Application · Switch to → " + row.runningLocation
+    return root.kindLabel(row)
+  }
+
   function kindLabel(row) {
     if (!row) return ""
     var k = row.kind
@@ -1729,6 +1985,7 @@ Item {
     if (k === "omarchy") return "Omarchy"
     if (k === "omarchy-menu") return root.view === "menu" ? "›" : "Menu"
     if (k === "omarchy-cli") return "CLI"
+    if (k === "keybinding") return "Shortcut"
     if (k === "window") return row.focused ? "Current" : "Window"
     if (k === "quicklink") return "Quicklink"
     if (k === "url") return "Web"

@@ -60,6 +60,7 @@ function menuRows(defaultRaw, userRaw) {
       kind: isAction ? "omarchy" : "omarchy-menu",
       title: it.label || key,
       subtitle: (crumbs ? crumbs : "Omarchy") + (isAction ? "" : " ›"),
+      path: (crumbs ? crumbs + " › " : "") + (it.label || key),
       glyph: it.icon || "",
       glyphFont: it.iconFont || "",
       keywords: [key.replace(/\./g, " "), it.title || "", it.description || ""].concat(asArray(it.aliases)),
@@ -94,6 +95,37 @@ function cliRows(raw) {
   return rows
 }
 
+// ---------------------------------------------------------------- keyboard shortcuts
+
+// The stock command resolves Lua bindings, physical keycodes and personal
+// overrides. Index its human-readable output instead of maintaining a second
+// shortcut table or trying to execute opaque compositor callback IDs.
+function keybindingRows(raw) {
+  var rows = [], byTitle = {}
+  var lines = String(raw || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var match = lines[i].match(/^\s*(.+?)\s+→\s+(.+?)\s*$/)
+    if (!match) continue
+    var chord = match[1].replace(/\s+/g, " ").trim()
+    var title = match[2].trim()
+    var key = JSON.stringify(title)
+    var row = byTitle[key]
+    if (!row) {
+      row = { id: "keybinding:" + title, kind: "keybinding", title: title,
+        subtitle: "", glyph: "󰌌", shortcuts: [], keywords: ["shortcut", "hotkey", "keybinding"] }
+      byTitle[key] = row
+      rows.push(row)
+    }
+    if (row.shortcuts.indexOf(chord) < 0) row.shortcuts.push(chord)
+  }
+  for (var j = 0; j < rows.length; j++) {
+    rows[j].shortcut = rows[j].shortcuts.join(" / ")
+    rows[j].subtitle = rows[j].shortcut
+    rows[j].keywords = rows[j].keywords.concat(rows[j].shortcuts)
+  }
+  return rows
+}
+
 // ---------------------------------------------------------------- windows
 
 function windowRows(raw) {
@@ -113,6 +145,8 @@ function windowRows(raw) {
       title: w.title || cls || "Window",
       subtitle: (cls ? cls : "") + (ws ? "  ·  workspace " + ws.replace(/^special:/, "special ") : ""),
       appClass: cls,
+      workspaceName: ws,
+      focusOrder: Number.isFinite(w.focusHistoryID) && w.focusHistoryID >= 0 ? w.focusHistoryID : 1000000,
       address: w.address,
       focused: w.focusHistoryID === 0,
       keywords: [cls, w.initialTitle || ""]
@@ -354,6 +388,16 @@ function providerRows(menuId, key, raw, shellQuote) {
       action: spec.action + shellQuote(parts[1] || parts[0]), isChecked: !!parts[2] && parts[2] === (parts[1] || parts[0]), aliases: [] })
   }
   return rows
+}
+
+// Stock picker semantics: option order for Apply, selection order for an
+// immediate onChange command; discard missing values and duplicate selections.
+function pickerSelections(options, selected, preserveOrder) {
+  var allowed = (options || []).map(function(raw, i) { return pickOption(raw, i).value })
+  return (preserveOrder ? selected : allowed).filter(function(value, index, values) {
+    return typeof value === "string" && allowed.indexOf(value) >= 0
+      && selected.indexOf(value) >= 0 && values.indexOf(value) === index
+  })
 }
 
 // "<glyph>\t<label>\t<detail>" | "<label>" → picker option
