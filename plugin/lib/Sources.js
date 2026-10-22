@@ -148,6 +148,8 @@ function windowRows(raw) {
       workspaceName: ws,
       focusOrder: Number.isFinite(w.focusHistoryID) && w.focusHistoryID >= 0 ? w.focusHistoryID : 1000000,
       address: w.address,
+      // Client PID, so actions can quit or force-kill the app behind a window.
+      pid: Number.isInteger(w.pid) && w.pid > 0 ? w.pid : 0,
       focused: w.focusHistoryID === 0,
       keywords: [cls, w.initialTitle || ""]
     })

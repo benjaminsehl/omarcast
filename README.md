@@ -154,6 +154,10 @@ uses desktop IDs, declared startup classes and Quickshell's desktop-entry lookup
 never window titles. Chrome app-mode windows must match explicitly, keeping them
 separate from normal browser windows and from other app profiles. Open, close,
 focus and desktop-change events refresh the snapshot while the palette is open.
+The action panel also offers **Quit Application** (SIGTERM) and
+**Kill -9 Application** (SIGKILL) for a running app's client PID; both appear only
+when Hyprland reports a PID, so a window-mode Chrome app quits that whole browser
+process, as it would from the command line.
 Window activation resolves the target live and switches its desktop before focusing
 it; a window closed since the snapshot cannot materialize an empty desktop.
 

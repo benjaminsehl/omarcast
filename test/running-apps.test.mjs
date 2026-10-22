@@ -61,13 +61,15 @@ test('the most recently focused window wins; ties are deterministic', () => {
 
 test('snapshots retain workspace names and MRU order, excluding unmapped clients', () => {
   const rows = S.windowRows(JSON.stringify([
-    { address: win.address, class: 'Signal', workspace: { name: '3' }, focusHistoryID: 2, mapped: true },
-    { address: '0xdef', class: 'Signal', workspace: { name: '4' }, focusHistoryID: 0, mapped: true },
+    { address: win.address, class: 'Signal', workspace: { name: '3' }, focusHistoryID: 2, mapped: true, pid: 4242 },
+    { address: '0xdef', class: 'Signal', workspace: { name: '4' }, focusHistoryID: 0, mapped: true, pid: -1 },
     { address: '0x111', class: 'Signal', mapped: false },
   ]));
   assert.equal(rows.length, 2);
   assert.equal(rows[0].workspaceName, '4');
   assert.equal(rows[0].focusOrder, 0);
+  assert.equal(rows[0].pid, 0);
+  assert.equal(rows[1].pid, 4242);
 });
 
 test('running annotations do not mutate source rows and disappear after closing', () => {
@@ -118,6 +120,24 @@ test('the actual application primary action still launches non-running apps', ()
   actions[0].run();
   assert.deepEqual(h.calls, [['launch', app.appId]]);
   assert.equal(h.root.rowAccessory(row), 'Application');
+});
+
+test('a running app can be quit or force-killed by its client PID', () => {
+  const h = harness();
+  h.root.terminateWindow = (row, signal) => h.calls.push(['kill', row.pid, signal]);
+  const [row] = R.annotate([app], [{ ...win, pid: 4242 }], {}, false);
+  const actions = h.root.actionsFor(row);
+  assert.deepEqual(plain(actions.slice(3).map(a => a.title)), ['Quit Application', 'Kill -9 Application']);
+  actions[3].run();
+  actions[4].run();
+  assert.deepEqual(h.calls, [['kill', 4242, 'TERM'], ['kill', 4242, 'KILL']]);
+});
+
+test('no window PID means no destructive actions', () => {
+  const h = harness();
+  const [row] = R.annotate([app], [win], {}, false);
+  const titles = h.root.actionsFor(row).map(a => a.title);
+  assert.deepEqual(plain(titles), ['Switch to → Desktop 3', 'Copy Name', 'Launch Application']);
 });
 
 test('focus expressions contain no interpolated workspace names or unchecked addresses', () => {

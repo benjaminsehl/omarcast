@@ -288,7 +288,8 @@ Item {
           targetAddress: row.runningWindow ? row.runningWindow.address : "",
           accessory: root.rowAccessory(row),
           titleMatch: Search.matchPositions(display, parsed.text),
-          kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope) }
+          kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope),
+          actions: root.actionsFor(row).map(function(a) { return a.title }) }
       }) })
   }
 
@@ -780,7 +781,13 @@ Item {
         }),
         act("Copy Name", "󰆏", "⌃↵", function() { root.copy(row.title) })
       ]
-      if (row.runningWindow) actions.push(act("Launch Application", "󰏌", "", function() { root.launchApp(row) }))
+      if (row.runningWindow) {
+        actions.push(act("Launch Application", "󰏌", "", function() { root.launchApp(row) }))
+        if (row.runningWindow.pid > 0) {
+          actions.push(act("Quit Application", "󰅖", "", function() { root.terminateWindow(row.runningWindow, "TERM") }))
+          actions.push(act("Kill -9 Application", "", "", function() { root.terminateWindow(row.runningWindow, "KILL") }))
+        }
+      }
       return actions
     }
     if (k === "command") {
@@ -816,11 +823,18 @@ Item {
       act("Copy Command", "󰆏", "⌃↵", function() { root.copy(row.command) }),
       act("Show Help", "󰋖", "", function() { root.runInTerminal(row.command + " --help") })
     ]
-    if (k === "window") return [
-      act("Switch to Window", "", "↵", function() { root.focusWindow(row) }),
-      act("Close Window", "󰅖", "⌃↵", function() { root.closeWindow(row) }),
-      act("Copy Title", "󰆏", "", function() { root.copy(row.title) })
-    ]
+    if (k === "window") {
+      var windowActions = [
+        act("Switch to Window", "", "↵", function() { root.focusWindow(row) }),
+        act("Close Window", "󰅖", "⌃↵", function() { root.closeWindow(row) }),
+        act("Copy Title", "󰆏", "", function() { root.copy(row.title) })
+      ]
+      if (row.pid > 0) {
+        windowActions.push(act("Quit Application", "󰅖", "", function() { root.terminateWindow(row, "TERM") }))
+        windowActions.push(act("Kill -9 Application", "", "", function() { root.terminateWindow(row, "KILL") }))
+      }
+      return windowActions
+    }
     if (k === "calc") return [
       act("Copy Answer", "󰆏", "↵", function() { root.copy(row.calc.copy) }),
       act("Paste Answer", "󰆒", "⌃↵", function() { root.paste(row.calc.copy) }),
@@ -930,6 +944,15 @@ Item {
     root.recordUse(row.historyId)
     root.dismiss()
     Quickshell.execDetached(["hyprctl", "dispatch", expression])
+  }
+
+  // Quit asks nicely; SIGKILL is the explicit last resort for a wedged app.
+  // The PID comes from the live Hyprland snapshot and is re-validated here.
+  function terminateWindow(row, signal) {
+    var pid = row && row.pid > 0 ? String(row.pid) : ""
+    if (!/^[0-9]+$/.test(pid)) return
+    root.dismiss()
+    Quickshell.execDetached(["kill", "-" + signal, pid])
   }
 
   function closeWindow(row) {
