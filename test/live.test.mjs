@@ -23,6 +23,26 @@ function waitForFile(path) {
   });
 }
 
+test('live emoji-related search results all expose Tab navigation into the picker', () => {
+  const status = JSON.parse(call('status', JSON.stringify({ query: 'emoji' })));
+  const related = status.results.filter(r => /\bemojis?\b/i.test(r.title));
+  assert.ok(related.some(r => r.id === 'omarchy:trigger.emoji'));
+  assert.ok(related.some(r => r.kind === 'keybinding'));
+  for (const row of related) assert.equal(row.tabTargetView, 'emoji', row.title);
+});
+
+test('live emoji database and semantic search work without opening or pasting', () => {
+  const before = JSON.parse(call('status'));
+  for (const [query, emoji] of [['thank you', '🙏'], ['rocekt', '🚀'], ['thumbs up medium dark', '👍🏾']]) {
+    const result = JSON.parse(call('status', JSON.stringify({ view: 'emoji', query })));
+    assert.equal(result.counts.emojis, 3972);
+    assert.equal(result.results[0].emoji, emoji);
+    assert.deepEqual(result.results[0].actions, ['Paste Emoji', 'Copy Emoji']);
+    assert.equal(result.opened, before.opened);
+    assert.equal(result.view, before.view);
+  }
+});
+
 test('live running apps expose a switch target without activating it', t => {
   try {
     open({ query: 'app/' });

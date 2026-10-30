@@ -1,0 +1,28 @@
+{
+  "package": "emojibase-data",
+  "version": "18.0.0",
+  "description": "English Unicode/CLDR labels, community tags, CLDR and GitHub shortcodes; all skin-tone sequences.",
+  "count": 3972,
+  "sources": [
+    {
+      "url": "https://cdn.jsdelivr.net/npm/emojibase-data@18.0.0/en/data.json",
+      "sha256": "f8c561877ac08c3a33c96d1c02fd064b1dfbe24ddce8b6fd243ecb346ce96913"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/emojibase-data@18.0.0/en/shortcodes/cldr.json",
+      "sha256": "20220ef911f5ec4009d5e979317d7a69c940150ff73efd206558021db31e5dac"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/emojibase-data@18.0.0/en/shortcodes/github.json",
+      "sha256": "d6bb7101e7bab1e52b30f4b3562da2319b484a6266352a1119f0d1ba52db23db"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/emojibase-data@18.0.0/LICENSE",
+      "sha256": "5c4e1582dcae9429a5d00ec0a64185c3a711f9757b2308fdf275d90b120f6149"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/emojibase-data@18.0.0/meta/groups.json",
+      "sha256": "3ce4f0a8e5890ed9d746b12e0056b170340928c1936be35cf92bb3e6d83a71e1"
+    }
+  ]
+}
