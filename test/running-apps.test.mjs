@@ -25,7 +25,7 @@ function harness() {
     recordUse() {}, focusWindow: row => calls.push(['focus', row.address]),
     kindLabel: row => row.kind === 'app' ? 'Application' : 'Window' };
   const context = vm.createContext({ root });
-  for (const name of ['act', 'actionsFor', 'rowAccessory']) {
+  for (const name of ['act', 'itemActionsFor', 'actionsFor', 'rowAccessory']) {
     vm.runInContext(qmlFunction(name), context);
     root[name] = context[name];
   }
@@ -127,7 +127,7 @@ test('a running app can be quit or force-killed by its client PID', () => {
   h.root.terminateWindow = (row, signal) => h.calls.push(['kill', row.pid, signal]);
   const [row] = R.annotate([app], [{ ...win, pid: 4242 }], {}, false);
   const actions = h.root.actionsFor(row);
-  assert.deepEqual(plain(actions.slice(3).map(a => a.title)), ['Quit Application', 'Kill -9 Application']);
+  assert.deepEqual(plain(actions.slice(3).map(a => a.title)), ['Quit Application', 'Kill -9 Application', 'Copy Metadata for Prompt']);
   actions[3].run();
   actions[4].run();
   assert.deepEqual(h.calls, [['kill', 4242, 'TERM'], ['kill', 4242, 'KILL']]);
@@ -137,7 +137,7 @@ test('no window PID means no destructive actions', () => {
   const h = harness();
   const [row] = R.annotate([app], [win], {}, false);
   const titles = h.root.actionsFor(row).map(a => a.title);
-  assert.deepEqual(plain(titles), ['Switch to → Desktop 3', 'Copy Name', 'Launch Application']);
+  assert.deepEqual(plain(titles), ['Switch to → Desktop 3', 'Copy Name', 'Launch Application', 'Copy Metadata for Prompt']);
 });
 
 test('focus expressions contain no interpolated workspace names or unchecked addresses', () => {

@@ -89,6 +89,14 @@ Built-in commands (each opens its own view; Backspace on empty / Esc goes back):
 Keys: `↵` primary action · `Ctrl+↵` secondary · `Ctrl+K` action panel · `↑↓` / `Ctrl+N/P` ·
 `Tab` opens a command's view · `Esc` clears → back → close.
 
+The action panel also offers **Copy Metadata for Prompt** for launcher results.
+It copies a readable, JSON-formatted reference block with the full breadcrumb,
+file path or URL, name, type, stable item ID, menu route, command, desktop-entry
+identity, shortcut and live window details where available. Remove entries are
+marked destructive. This does not execute the item or send anything to an agent.
+Raw clipboard/snippet contents and internal search caches are excluded. Existing
+Copy Name/Command/URL actions and Enter/Ctrl+Enter behavior are unchanged.
+
 `Backspace` at the start of the search (including an empty search) removes the
 innermost submenu/view pill. Existing search text is retained when stepping out.
 Ordinary text selection/deletion, modifier shortcuts and IME composition still

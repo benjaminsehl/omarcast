@@ -23,11 +23,21 @@ function waitForFile(path) {
   });
 }
 
+test('live removal entries expose safety classification and prompt metadata action', () => {
+  const status = JSON.parse(call('status', JSON.stringify({ query: 'remove browser' })));
+  const removal = status.results.find(r => r.id === 'omarchy:remove.browser');
+  assert.ok(removal);
+  assert.equal(removal.managementKind, 'remove');
+  assert.equal(removal.path, 'Remove › Browser');
+  assert.ok(removal.actions.includes('Copy Metadata for Prompt'));
+});
+
 test('live emoji-related search results all expose Tab navigation into the picker', () => {
   const status = JSON.parse(call('status', JSON.stringify({ query: 'emoji' })));
   const related = status.results.filter(r => /\bemojis?\b/i.test(r.title));
   assert.ok(related.some(r => r.id === 'omarchy:trigger.emoji'));
-  assert.ok(related.some(r => r.kind === 'keybinding'));
+  // Shortcut indexing is lazy until the first open/refresh after shell restart.
+  if (status.counts.shortcuts > 0) assert.ok(related.some(r => r.kind === 'keybinding'));
   for (const row of related) assert.equal(row.tabTargetView, 'emoji', row.title);
 });
 
@@ -37,7 +47,7 @@ test('live emoji database and semantic search work without opening or pasting', 
     const result = JSON.parse(call('status', JSON.stringify({ view: 'emoji', query })));
     assert.equal(result.counts.emojis, 3972);
     assert.equal(result.results[0].emoji, emoji);
-    assert.deepEqual(result.results[0].actions, ['Paste Emoji', 'Copy Emoji']);
+    assert.deepEqual(result.results[0].actions, ['Paste Emoji', 'Copy Emoji', 'Copy Metadata for Prompt']);
     assert.equal(result.opened, before.opened);
     assert.equal(result.view, before.view);
   }

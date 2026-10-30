@@ -10,6 +10,7 @@ import qs.Ui
 import "lib/Calc.js" as Calc
 import "lib/Search.js" as Search
 import "lib/Emoji.js" as Emoji
+import "lib/Metadata.js" as Metadata
 import "lib/Sources.js" as Sources
 import "lib/RunningApps.js" as RunningApps
 
@@ -771,6 +772,20 @@ Item {
   function act(title, glyph, shortcut, fn) { return { title: title, glyph: glyph, shortcut: shortcut, run: fn } }
 
   function actionsFor(row) {
+    var actions = root.itemActionsFor(row)
+    // Append, so Enter / Ctrl+Enter and existing action positions stay intact.
+    if (row && actions.length && String(row.kind).indexOf("pick") !== 0) {
+      actions.push(act("Copy Metadata for Prompt", "󰆏", "", function() {
+        root.copy(Metadata.forPrompt(row, {
+          view: root.view, breadcrumb: root.view === "menu" ? Sources.menuPath(root.menuTree, root.menuRoute) : "",
+          query: root.query, configDir: root.configDir, managementKind: Search.managementKind(row)
+        }))
+      }))
+    }
+    return actions
+  }
+
+  function itemActionsFor(row) {
     if (!row) return []
     var k = row.kind
     if (k === "app") {
