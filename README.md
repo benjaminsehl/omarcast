@@ -105,6 +105,36 @@ Unrelated metadata fields stay separate and are discounted; scopes search names 
 Usage is remembered (`~/.local/state/omarcast/history.json`) and breaks equal-score
 ties; the empty query shows Recent, Commands, Applications.
 
+## Emoji picker
+
+Open **Search Emoji & Symbols** from the command list, or run
+`bin/omarcast-ui emoji [query]`. Enter pastes into the previously focused app;
+Ctrl+Enter copies without pasting. No hotkey is installed by this feature.
+
+The picker bundles **3,972 emoji sequences** from **Emojibase 18.0.0**, including
+skin-tone combinations, ZWJ families/professions, flags and symbols. Unicode/CLDR
+English names, community search tags, and CLDR/GitHub shortcodes are indexed
+locally. There are **no runtime downloads, requests or model calls**.
+
+Search examples: `thank you`, `congratulations`, `thumbsup`, `:+1:`, `rocekt`
+(a typo), `flag japan`, `thumbs up medium dark`, or paste an emoji itself.
+Names and exact shortcodes rank before partial words and one-typo matches.
+Multiple words must all match; word order is flexible. A small documented intent
+lexicon in `lib/Emoji.js` supplements the database. This is keyword-based search,
+not an unrestricted natural-language or translation engine.
+
+Browse the entire catalog grouped by category (no result-count truncation).
+Pasted/copied emoji appear first as recently used on the next empty search;
+usage cannot override a more relevant search match. Titles remain canonical,
+with category and shortcode context on the right. New Unicode glyphs require a
+font that supports them; unsupported glyphs still have searchable names.
+
+Maintainers: `node bin/update-emoji-data.mjs` explicitly regenerates the checked-in
+catalog from the pinned package version. `plugin/data/emoji-sources.json` records
+source URLs and SHA-256 hashes. Data attribution/license is in
+`plugin/EMOJIBASE-LICENSE`. `test/emoji.test.mjs` covers catalog completeness,
+intent words, aliases, typos, variants, ranking and paste/copy wiring.
+
 ## Running applications
 
 Running applications show **Application · Switch to → Desktop 3** on the right.

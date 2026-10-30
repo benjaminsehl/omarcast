@@ -9,6 +9,7 @@ import qs.Commons as Commons
 import qs.Ui
 import "lib/Calc.js" as Calc
 import "lib/Search.js" as Search
+import "lib/Emoji.js" as Emoji
 import "lib/Sources.js" as Sources
 import "lib/RunningApps.js" as RunningApps
 
@@ -271,15 +272,16 @@ Item {
     try { if (payloadJson) payload = JSON.parse(payloadJson) } catch (e) { }
     var query = payload.query === undefined ? root.query : String(payload.query)
     var parsed = Search.parseQuery(query)
-    var rows = payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
+    var rows = payload.view === "emoji" ? Emoji.search(root.emojis, query, root.history)
+      : payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
     return JSON.stringify({ opened: root.opened, view: root.view, menuRoute: root.menuRoute, query: query,
       counts: { apps: root.appRows.length, menu: root.menuRows.length,
-        cli: root.cliRows.length, shortcuts: root.keybindingRows.length },
+        cli: root.cliRows.length, shortcuts: root.keybindingRows.length, emojis: root.emojis.length },
       picker: { mode: root.pickMode, multiple: root.pickMultiple, selected: root.pickSelected },
       results: rows.slice(0, 8).map(function(row) {
         var display = Search.displayText(row, query)
         return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
-          kind: row.kind, shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          kind: row.kind, emoji: row.emoji || "", shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
           running: !!row.runningWindow, location: row.runningLocation || "",
           targetAddress: row.runningWindow ? row.runningWindow.address : "",
           accessory: root.rowAccessory(row),
@@ -643,26 +645,7 @@ Item {
   }
 
   function emojiRows() {
-    var out = []
-    var q = root.query.trim()
-    for (var i = 0; i < root.emojis.length && out.length < 150; i++) {
-      var e = root.emojis[i]
-      if (q && !Search.matchesAll(e.k, q)) continue
-      out.push({ id: "", kind: "emoji", title: root.emojiTitle(e.k), subtitle: "", emoji: e.e, glyph: e.e, _section: q ? "Results" : "All" })
-    }
-    return out
-  }
-
-  // "smiling_face_with_three_hearts smiling face with …" → "Smiling face with three hearts"
-  function emojiTitle(k) {
-    var seen = {}
-    var words = String(k || "").replace(/_/g, " ").split(/\s+/).filter(function(w) {
-      if (!w || seen[w]) return false
-      seen[w] = true
-      return true
-    })
-    var t = words.slice(0, 6).join(" ")
-    return t.charAt(0).toUpperCase() + t.slice(1)
+    return Emoji.search(root.emojis, root.query, root.history)
   }
 
   function windowViewRows() {
@@ -853,8 +836,8 @@ Item {
       act("Open", "󰏌", "", function() { root.dismiss(); Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-clipboard-open", "--history-index", String(row.historyIndex)]) })
     ]
     if (k === "emoji") return [
-      act("Paste Emoji", "󰆒", "↵", function() { root.paste(row.emoji) }),
-      act("Copy Emoji", "󰆏", "⌃↵", function() { root.copy(row.emoji) })
+      act("Paste Emoji", "󰆒", "↵", function() { root.recordUse(row.id); root.paste(row.emoji) }),
+      act("Copy Emoji", "󰆏", "⌃↵", function() { root.recordUse(row.id); root.copy(row.emoji) })
     ]
     if (k === "snippet") return [
       act("Paste Snippet", "󰆒", "↵", function() { root.recordUse(row.id); root.paste(row.text) }),
@@ -1255,8 +1238,11 @@ Item {
   }
 
   FileView {
-    path: root.omarchyPath + "/shell/plugins/emojis/emojis.json"
-    onLoaded: { try { root.emojis = JSON.parse(text()) || [] } catch (e) { root.emojis = [] } }
+    path: Qt.resolvedUrl("data/emojis.json")
+    onLoaded: {
+      try { root.emojis = Emoji.prepare(JSON.parse(text())) } catch (e) { root.emojis = []; console.warn("Omarcast emoji data:", e) }
+      if (root.opened && root.view === "emoji") root.rebuild(true)
+    }
   }
 
   Timer {
