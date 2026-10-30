@@ -105,6 +105,13 @@ Unrelated metadata fields stay separate and are discounted; scopes search names 
 Usage is remembered (`~/.local/state/omarcast/history.json`) and breaks equal-score
 ties; the empty query shows Recent, Commands, Applications.
 
+Default search applies a safety bias to package-management results: **Install**
+scores are multiplied by **0.55**, **Remove** by **0.20**. Typing the explicit word
+`install` or `remove` restores normal scoring for that category. Nothing is hidden.
+Classification uses menu routes and CLI tokens, not arbitrary app names. Remove
+entries use the theme's red/urgent color for icons, titles and match highlights,
+including while selected.
+
 ## Emoji picker
 
 Open **Search Emoji & Symbols** from the command list, or run

@@ -282,7 +282,8 @@ Item {
         var display = Search.displayText(row, query)
         return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
           kind: row.kind, emoji: row.emoji || "", tabTargetView: root.tabTargetView(row),
-          shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text) * Search.defaultBias(row, parsed.text),
+          managementKind: Search.managementKind(row),
           running: !!row.runningWindow, location: row.runningLocation || "",
           targetAddress: row.runningWindow ? row.runningWindow.address : "",
           accessory: root.rowAccessory(row),
@@ -1530,6 +1531,9 @@ Item {
               readonly property var row: root.rows[ri] || ({})
               readonly property var searchMatch: Search.textMatch(row, root.parsedQuery.text, root.parsedQuery.scoped)
               readonly property bool hasCursor: index === root.selectedIndex
+              readonly property bool isRemoval: Search.managementKind(row) === "remove"
+              readonly property color textColor: isRemoval ? Commons.Color.urgent : hasCursor ? root.selectedText : root.foreground
+              readonly property color highlightColor: isRemoval ? Commons.Color.urgent : hasCursor ? root.selectedText : root.accent
               readonly property bool isCard: row.kind === "calc" || row.kind === "clock"
               readonly property string imageSource: row.kind === "app" || row.kind === "window" ? root.iconSource(row.icon) : ""
 
@@ -1578,7 +1582,7 @@ Item {
                     visible: rowItem.imageSource === ""
                     textFormat: Text.PlainText
                     text: rowItem.row.glyph || ""
-                    color: rowItem.hasCursor ? root.selectedText : root.foreground
+                    color: rowItem.textColor
                     font.family: rowItem.row.glyphFont || root.fontFamily
                     font.pixelSize: rowItem.row.kind === "emoji" ? Style.font.display : Style.font.iconLarge
                   }
@@ -1592,8 +1596,8 @@ Item {
                   width: Math.max(0, Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55), accessory.x - x - Style.spacing.lg * 2))
                   text: rowItem.searchMatch.text
                   positions: Search.matchPositions(text, root.parsedQuery.text)
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
+                  color: rowItem.textColor
+                  matchColor: rowItem.highlightColor
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
                   font.weight: Font.Medium
@@ -1607,7 +1611,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
                   text: rowItem.searchMatch.field === "path" ? "" : rowItem.row.subtitle || ""
-                  color: root.foreground
+                  color: rowItem.isRemoval ? Commons.Color.urgent : root.foreground
                   opacity: 0.5
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
@@ -1623,8 +1627,8 @@ Item {
                   visible: !body.showDetail
                   text: root.rowAccessory(rowItem.row)
                   positions: Search.matchPositions(text, root.parsedQuery.scope)
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
+                  color: rowItem.textColor
+                  matchColor: rowItem.highlightColor
                   opacity: root.parsedQuery.scoped || rowItem.row.runningWindow ? 1.0 : 0.4
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
