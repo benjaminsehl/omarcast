@@ -102,6 +102,33 @@ function frecency(entry) {
   return Math.min(320, Math.max(0, Number(entry.count || 0)) * 30 * recency)
 }
 
+// Classify by structured menu identity / CLI route, never arbitrary app titles
+// or descriptive text (e.g. an app named "Remove Background").
+function managementKind(row) {
+  if (!row) return ""
+  if (row.kind === "omarchy" || row.kind === "omarchy-menu") {
+    var route = String(row.route || String(row.id || "").replace(/^omarchy:/, ""))
+    var category = route.split(".")[0]
+    return category === "install" || category === "remove" ? category : ""
+  }
+  if (row.kind === "omarchy-cli") {
+    var tokens = String(row.command || row.title || "").replace(/^omarchy\s+/, "").split(/\s+/)
+    if (tokens.indexOf("remove") >= 0) return "remove"
+    if (tokens.indexOf("install") >= 0) return "install"
+  }
+  return ""
+}
+
+function defaultBias(row, query) {
+  var category = managementKind(row)
+  if (!category) return 1
+  // Explicit intent restores normal ranking for that category, without making
+  // removal unexpectedly competitive in ordinary app/action searches.
+  var words = normalize(query).split(" ")
+  if (words.indexOf(category) >= 0) return 1
+  return category === "remove" ? 0.2 : 0.55
+}
+
 function rank(rows, query, history, limit, minScore) {
   var parsed = parseQuery(query)
   var q = parsed.text
@@ -119,6 +146,7 @@ function rank(rows, query, history, limit, minScore) {
       score = textMatch(row, q, parsed.scoped).score
       if (score <= (minScore || 0)) continue
     }
+    score *= defaultBias(row, q)
     out.push({ row: row, score: score, usage: frecency(history[row.id]),
       preference: row.weight || KIND_WEIGHT[row.kind] || 1 })
   }

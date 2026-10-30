@@ -9,6 +9,8 @@ import qs.Commons as Commons
 import qs.Ui
 import "lib/Calc.js" as Calc
 import "lib/Search.js" as Search
+import "lib/Emoji.js" as Emoji
+import "lib/Metadata.js" as Metadata
 import "lib/Sources.js" as Sources
 import "lib/RunningApps.js" as RunningApps
 
@@ -271,20 +273,24 @@ Item {
     try { if (payloadJson) payload = JSON.parse(payloadJson) } catch (e) { }
     var query = payload.query === undefined ? root.query : String(payload.query)
     var parsed = Search.parseQuery(query)
-    var rows = payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
+    var rows = payload.view === "emoji" ? Emoji.search(root.emojis, query, root.history)
+      : payload.query === undefined ? root.rows : Search.rank(root.allSearchRows(), query, {}, 8)
     return JSON.stringify({ opened: root.opened, view: root.view, menuRoute: root.menuRoute, query: query,
       counts: { apps: root.appRows.length, menu: root.menuRows.length,
-        cli: root.cliRows.length, shortcuts: root.keybindingRows.length },
+        cli: root.cliRows.length, shortcuts: root.keybindingRows.length, emojis: root.emojis.length },
       picker: { mode: root.pickMode, multiple: root.pickMultiple, selected: root.pickSelected },
       results: rows.slice(0, 8).map(function(row) {
         var display = Search.displayText(row, query)
         return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
-          kind: row.kind, shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          kind: row.kind, emoji: row.emoji || "", tabTargetView: root.tabTargetView(row),
+          shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text) * Search.defaultBias(row, parsed.text),
+          managementKind: Search.managementKind(row),
           running: !!row.runningWindow, location: row.runningLocation || "",
           targetAddress: row.runningWindow ? row.runningWindow.address : "",
           accessory: root.rowAccessory(row),
           titleMatch: Search.matchPositions(display, parsed.text),
-          kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope) }
+          kindMatch: Search.matchPositions(root.kindLabel(row), parsed.scope),
+          actions: root.actionsFor(row).map(function(a) { return a.title }) }
       }) })
   }
 
@@ -643,26 +649,16 @@ Item {
   }
 
   function emojiRows() {
-    var out = []
-    var q = root.query.trim()
-    for (var i = 0; i < root.emojis.length && out.length < 150; i++) {
-      var e = root.emojis[i]
-      if (q && !Search.matchesAll(e.k, q)) continue
-      out.push({ id: "", kind: "emoji", title: root.emojiTitle(e.k), subtitle: "", emoji: e.e, glyph: e.e, _section: q ? "Results" : "All" })
-    }
-    return out
+    return Emoji.search(root.emojis, root.query, root.history)
   }
 
-  // "smiling_face_with_three_hearts smiling face with …" → "Smiling face with three hearts"
-  function emojiTitle(k) {
-    var seen = {}
-    var words = String(k || "").replace(/_/g, " ").split(/\s+/).filter(function(w) {
-      if (!w || seen[w]) return false
-      seen[w] = true
-      return true
-    })
-    var t = words.slice(0, 6).join(" ")
-    return t.charAt(0).toUpperCase() + t.slice(1)
+  // Tab drills into the local picker even when the selected result is the
+  // stock trigger, a shortcut, or a CLI entry. Enter keeps its original action.
+  function tabTargetView(row) {
+    if (!row) return ""
+    if (row.targetView) return row.targetView
+    if (["command", "omarchy", "omarchy-menu", "omarchy-cli", "keybinding", "app"].indexOf(row.kind) < 0) return ""
+    return /\bemojis?\b/i.test(String(row.title || "")) ? "emoji" : ""
   }
 
   function windowViewRows() {
@@ -776,6 +772,20 @@ Item {
   function act(title, glyph, shortcut, fn) { return { title: title, glyph: glyph, shortcut: shortcut, run: fn } }
 
   function actionsFor(row) {
+    var actions = root.itemActionsFor(row)
+    // Append, so Enter / Ctrl+Enter and existing action positions stay intact.
+    if (row && actions.length && String(row.kind).indexOf("pick") !== 0) {
+      actions.push(act("Copy Metadata for Prompt", "󰆏", "", function() {
+        root.copy(Metadata.forPrompt(row, {
+          view: root.view, breadcrumb: root.view === "menu" ? Sources.menuPath(root.menuTree, root.menuRoute) : "",
+          query: root.query, configDir: root.configDir, managementKind: Search.managementKind(row)
+        }))
+      }))
+    }
+    return actions
+  }
+
+  function itemActionsFor(row) {
     if (!row) return []
     var k = row.kind
     if (k === "app") {
@@ -786,7 +796,13 @@ Item {
         }),
         act("Copy Name", "󰆏", "⌃↵", function() { root.copy(row.title) })
       ]
-      if (row.runningWindow) actions.push(act("Launch Application", "󰏌", "", function() { root.launchApp(row) }))
+      if (row.runningWindow) {
+        actions.push(act("Launch Application", "󰏌", "", function() { root.launchApp(row) }))
+        if (row.runningWindow.pid > 0) {
+          actions.push(act("Quit Application", "󰅖", "", function() { root.terminateWindow(row.runningWindow, "TERM") }))
+          actions.push(act("Kill -9 Application", "", "", function() { root.terminateWindow(row.runningWindow, "KILL") }))
+        }
+      }
       return actions
     }
     if (k === "command") {
@@ -822,11 +838,18 @@ Item {
       act("Copy Command", "󰆏", "⌃↵", function() { root.copy(row.command) }),
       act("Show Help", "󰋖", "", function() { root.runInTerminal(row.command + " --help") })
     ]
-    if (k === "window") return [
-      act("Switch to Window", "", "↵", function() { root.focusWindow(row) }),
-      act("Close Window", "󰅖", "⌃↵", function() { root.closeWindow(row) }),
-      act("Copy Title", "󰆏", "", function() { root.copy(row.title) })
-    ]
+    if (k === "window") {
+      var windowActions = [
+        act("Switch to Window", "", "↵", function() { root.focusWindow(row) }),
+        act("Close Window", "󰅖", "⌃↵", function() { root.closeWindow(row) }),
+        act("Copy Title", "󰆏", "", function() { root.copy(row.title) })
+      ]
+      if (row.pid > 0) {
+        windowActions.push(act("Quit Application", "󰅖", "", function() { root.terminateWindow(row, "TERM") }))
+        windowActions.push(act("Kill -9 Application", "", "", function() { root.terminateWindow(row, "KILL") }))
+      }
+      return windowActions
+    }
     if (k === "calc") return [
       act("Copy Answer", "󰆏", "↵", function() { root.copy(row.calc.copy) }),
       act("Paste Answer", "󰆒", "⌃↵", function() { root.paste(row.calc.copy) }),
@@ -853,8 +876,8 @@ Item {
       act("Open", "󰏌", "", function() { root.dismiss(); Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-clipboard-open", "--history-index", String(row.historyIndex)]) })
     ]
     if (k === "emoji") return [
-      act("Paste Emoji", "󰆒", "↵", function() { root.paste(row.emoji) }),
-      act("Copy Emoji", "󰆏", "⌃↵", function() { root.copy(row.emoji) })
+      act("Paste Emoji", "󰆒", "↵", function() { root.recordUse(row.id); root.paste(row.emoji) }),
+      act("Copy Emoji", "󰆏", "⌃↵", function() { root.recordUse(row.id); root.copy(row.emoji) })
     ]
     if (k === "snippet") return [
       act("Paste Snippet", "󰆒", "↵", function() { root.recordUse(row.id); root.paste(row.text) }),
@@ -936,6 +959,15 @@ Item {
     root.recordUse(row.historyId)
     root.dismiss()
     Quickshell.execDetached(["hyprctl", "dispatch", expression])
+  }
+
+  // Quit asks nicely; SIGKILL is the explicit last resort for a wedged app.
+  // The PID comes from the live Hyprland snapshot and is re-validated here.
+  function terminateWindow(row, signal) {
+    var pid = row && row.pid > 0 ? String(row.pid) : ""
+    if (!/^[0-9]+$/.test(pid)) return
+    root.dismiss()
+    Quickshell.execDetached(["kill", "-" + signal, pid])
   }
 
   function closeWindow(row) {
@@ -1255,8 +1287,11 @@ Item {
   }
 
   FileView {
-    path: root.omarchyPath + "/shell/plugins/emojis/emojis.json"
-    onLoaded: { try { root.emojis = JSON.parse(text()) || [] } catch (e) { root.emojis = [] } }
+    path: Qt.resolvedUrl("data/emojis.json")
+    onLoaded: {
+      try { root.emojis = Emoji.prepare(JSON.parse(text())) } catch (e) { root.emojis = []; console.warn("Omarcast emoji data:", e) }
+      if (root.opened && root.view === "emoji") root.rebuild(true)
+    }
   }
 
   Timer {
@@ -1468,8 +1503,8 @@ Item {
               } else if (key === Qt.Key_Return || key === Qt.Key_Enter) {
                 if (root.actionsOpen) root.runAction(root.actionIndex)
                 else root.runAction(ctrl ? 1 : 0)
-              } else if (key === Qt.Key_Tab && root.selectedRow && root.selectedRow.kind === "command" && root.selectedRow.targetView) {
-                root.pushView(root.selectedRow.targetView)
+              } else if (key === Qt.Key_Tab && root.tabTargetView(root.selectedRow)) {
+                root.pushView(root.tabTargetView(root.selectedRow))
               } else {
                 return
               }
@@ -1534,6 +1569,9 @@ Item {
               readonly property var row: root.rows[ri] || ({})
               readonly property var searchMatch: Search.textMatch(row, root.parsedQuery.text, root.parsedQuery.scoped)
               readonly property bool hasCursor: index === root.selectedIndex
+              readonly property bool isRemoval: Search.managementKind(row) === "remove"
+              readonly property color textColor: isRemoval ? Commons.Color.urgent : hasCursor ? root.selectedText : root.foreground
+              readonly property color highlightColor: isRemoval ? Commons.Color.urgent : hasCursor ? root.selectedText : root.accent
               readonly property bool isCard: row.kind === "calc" || row.kind === "clock"
               readonly property string imageSource: row.kind === "app" || row.kind === "window" ? root.iconSource(row.icon) : ""
 
@@ -1582,7 +1620,7 @@ Item {
                     visible: rowItem.imageSource === ""
                     textFormat: Text.PlainText
                     text: rowItem.row.glyph || ""
-                    color: rowItem.hasCursor ? root.selectedText : root.foreground
+                    color: rowItem.textColor
                     font.family: rowItem.row.glyphFont || root.fontFamily
                     font.pixelSize: rowItem.row.kind === "emoji" ? Style.font.display : Style.font.iconLarge
                   }
@@ -1596,8 +1634,8 @@ Item {
                   width: Math.max(0, Math.min(implicitWidth, parent.width * (body.showDetail ? 0.7 : 0.55), accessory.x - x - Style.spacing.lg * 2))
                   text: rowItem.searchMatch.text
                   positions: Search.matchPositions(text, root.parsedQuery.text)
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
+                  color: rowItem.textColor
+                  matchColor: rowItem.highlightColor
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
                   font.weight: Font.Medium
@@ -1611,7 +1649,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
                   text: rowItem.searchMatch.field === "path" ? "" : rowItem.row.subtitle || ""
-                  color: root.foreground
+                  color: rowItem.isRemoval ? Commons.Color.urgent : root.foreground
                   opacity: 0.5
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
@@ -1627,8 +1665,8 @@ Item {
                   visible: !body.showDetail
                   text: root.rowAccessory(rowItem.row)
                   positions: Search.matchPositions(text, root.parsedQuery.scope)
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  matchColor: rowItem.hasCursor ? root.selectedText : root.accent
+                  color: rowItem.textColor
+                  matchColor: rowItem.highlightColor
                   opacity: root.parsedQuery.scoped || rowItem.row.runningWindow ? 1.0 : 0.4
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
