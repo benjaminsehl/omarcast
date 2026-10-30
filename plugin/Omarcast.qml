@@ -281,7 +281,8 @@ Item {
       results: rows.slice(0, 8).map(function(row) {
         var display = Search.displayText(row, query)
         return { id: row.id, title: row.title, displayTitle: display, path: row.path || "",
-          kind: row.kind, emoji: row.emoji || "", shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
+          kind: row.kind, emoji: row.emoji || "", tabTargetView: root.tabTargetView(row),
+          shortcut: row.shortcut || "", score: Search.textScore(row, parsed.text),
           running: !!row.runningWindow, location: row.runningLocation || "",
           targetAddress: row.runningWindow ? row.runningWindow.address : "",
           accessory: root.rowAccessory(row),
@@ -646,6 +647,15 @@ Item {
 
   function emojiRows() {
     return Emoji.search(root.emojis, root.query, root.history)
+  }
+
+  // Tab drills into the local picker even when the selected result is the
+  // stock trigger, a shortcut, or a CLI entry. Enter keeps its original action.
+  function tabTargetView(row) {
+    if (!row) return ""
+    if (row.targetView) return row.targetView
+    if (["command", "omarchy", "omarchy-menu", "omarchy-cli", "keybinding", "app"].indexOf(row.kind) < 0) return ""
+    return /\bemojis?\b/i.test(String(row.title || "")) ? "emoji" : ""
   }
 
   function windowViewRows() {
@@ -1454,8 +1464,8 @@ Item {
               } else if (key === Qt.Key_Return || key === Qt.Key_Enter) {
                 if (root.actionsOpen) root.runAction(root.actionIndex)
                 else root.runAction(ctrl ? 1 : 0)
-              } else if (key === Qt.Key_Tab && root.selectedRow && root.selectedRow.kind === "command" && root.selectedRow.targetView) {
-                root.pushView(root.selectedRow.targetView)
+              } else if (key === Qt.Key_Tab && root.tabTargetView(root.selectedRow)) {
+                root.pushView(root.tabTargetView(root.selectedRow))
               } else {
                 return
               }

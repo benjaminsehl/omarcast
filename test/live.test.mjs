@@ -23,6 +23,14 @@ function waitForFile(path) {
   });
 }
 
+test('live emoji-related search results all expose Tab navigation into the picker', () => {
+  const status = JSON.parse(call('status', JSON.stringify({ query: 'emoji' })));
+  const related = status.results.filter(r => /\bemojis?\b/i.test(r.title));
+  assert.ok(related.some(r => r.id === 'omarchy:trigger.emoji'));
+  assert.ok(related.some(r => r.kind === 'keybinding'));
+  for (const row of related) assert.equal(row.tabTargetView, 'emoji', row.title);
+});
+
 test('live emoji database and semantic search work without opening or pasting', () => {
   const before = JSON.parse(call('status'));
   for (const [query, emoji] of [['thank you', '🙏'], ['rocekt', '🚀'], ['thumbs up medium dark', '👍🏾']]) {

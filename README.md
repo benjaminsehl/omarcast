@@ -109,7 +109,10 @@ ties; the empty query shows Recent, Commands, Applications.
 
 Open **Search Emoji & Symbols** from the command list, or run
 `bin/omarcast-ui emoji [query]`. Enter pastes into the previously focused app;
-Ctrl+Enter copies without pasting. No hotkey is installed by this feature.
+Ctrl+Enter copies without pasting. Tab on any emoji-related launcher result
+(including Trigger › Emoji, emoji shortcuts, and emoji CLI entries) opens this
+local picker; Enter retains that result's original action. No hotkey is installed
+by this feature.
 
 The picker bundles **3,972 emoji sequences** from **Emojibase 18.0.0**, including
 skin-tone combinations, ZWJ families/professions, flags and symbols. Unicode/CLDR

@@ -18,7 +18,7 @@ assert.ok(keyStart >= 0 && keyEnd > keyStart);
 
 function harness({ view = 'menu', menuRoute = 'setup.default.browser', text = '' } = {}) {
   let focused = 0, cancelled;
-  const Qt = { Key_Backspace: 16777219, ControlModifier: 1, AltModifier: 2, MetaModifier: 4,
+  const Qt = { Key_Backspace: 16777219, Key_Tab: 16777217, ControlModifier: 1, AltModifier: 2, MetaModifier: 4,
     callLater: fn => fn() };
   const input = { text, cursorPosition: text.length, selectionStart: text.length,
     selectionEnd: text.length, preeditText: '', forceActiveFocus: () => { focused++; } };
@@ -30,7 +30,7 @@ function harness({ view = 'menu', menuRoute = 'setup.default.browser', text = ''
     finishPick: value => { cancelled = value; },
     choosePick() { throw new Error('Going back must cancel, not toggle a selection'); } };
   const context = vm.createContext({ root, input, Qt, filesDebounce: { restart() {} } });
-  for (const name of ['openMenu', 'setQuery', 'dismiss', 'popView', 'backspacePill']) {
+  for (const name of ['openMenu', 'setQuery', 'dismiss', 'popView', 'backspacePill', 'tabTargetView']) {
     vm.runInContext(qmlFunction(name), context);
     root[name] = context[name];
   }
@@ -42,6 +42,37 @@ function harness({ view = 'menu', menuRoute = 'setup.default.browser', text = ''
       return event;
     } };
 }
+
+test('Tab opens emoji picker from every emoji-related launcher result', () => {
+  for (const row of [
+    { kind: 'command', title: 'Search Emoji & Symbols', targetView: 'emoji' },
+    { kind: 'omarchy', title: 'Emoji', route: 'trigger.emoji' },
+    { kind: 'keybinding', title: 'Emojis' },
+    { kind: 'keybinding', title: 'Emoji picker (Vicinae)' },
+    { kind: 'omarchy-cli', title: 'omarchy menu emoji' },
+    { kind: 'app', title: 'Emoji Picker' }
+  ]) {
+    const h = harness({ view: 'root', text: 'emoji' });
+    h.root.selectedRow = row;
+    let target;
+    h.root.pushView = view => { target = view; };
+    assert.equal(h.press({ key: h.Qt.Key_Tab }).accepted, true, row.title);
+    assert.equal(target, 'emoji', row.title);
+  }
+});
+
+test('Tab preserves other command views and ignores unrelated or actual emoji rows', () => {
+  const h = harness();
+  assert.equal(h.root.tabTargetView({ kind: 'command', targetView: 'files' }), 'files');
+  for (const row of [null, { kind: 'omarchy', title: 'Theme' },
+    { kind: 'emoji', title: 'emoji-shaped face' },
+    { kind: 'agent', title: 'Ask about emoji' },
+    { kind: 'omarchy', title: 'Demojify' }]) {
+    h.root.selectedRow = row;
+    h.root.pushView = () => { throw new Error('Must not navigate'); };
+    assert.equal(h.press({ key: h.Qt.Key_Tab }).accepted, false);
+  }
+});
 
 test('empty-search Backspace removes one submenu level per fresh press', () => {
   const h = harness();
