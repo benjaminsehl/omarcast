@@ -55,6 +55,9 @@ Item {
   // ------------------------------------------------------------ state
   property bool opened: false
   property string view: "root"           // root | clipboard | emoji | windows | files
+  // The view this summon opened in. Escape from a view opened directly (for
+  // example the emoji picker's hotkey) dismisses instead of falling back to root.
+  property string entryView: "root"
   property string query: ""
   readonly property var parsedQuery: Search.parseQuery(root.query)
   property bool preview: false
@@ -176,6 +179,7 @@ Item {
       if (id !== "root" && id !== "apps") { view = "menu"; root.menuRoute = id }
     }
     root.view = view
+    root.entryView = view
     root.query = payload.query || ""
     input.text = root.query
     root.actionsOpen = false
@@ -1448,8 +1452,8 @@ Item {
               if (key === Qt.Key_Escape) {
                 if (root.actionsOpen) root.actionsOpen = false
                 else if (input.text) input.text = ""
-                else if (root.view !== "root") root.popView()
-                else root.dismiss()
+                else if (root.entryView !== "root" || root.view === "root") root.dismiss()
+                else root.popView()
               } else if (ctrl && key === Qt.Key_K) {
                 root.actionsOpen = !root.actionsOpen && root.selectedActions.length > 0
                 root.actionIndex = 0

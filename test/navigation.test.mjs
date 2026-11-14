@@ -16,13 +16,13 @@ const keyStart = source.indexOf('Keys.onPressed: function(event) {') + 'Keys.onP
 const keyEnd = source.indexOf('\n            }\n          }', keyStart) + '\n            }'.length;
 assert.ok(keyStart >= 0 && keyEnd > keyStart);
 
-function harness({ view = 'menu', menuRoute = 'setup.default.browser', text = '' } = {}) {
+function harness({ view = 'menu', entryView = 'root', menuRoute = 'setup.default.browser', text = '' } = {}) {
   let focused = 0, cancelled;
-  const Qt = { Key_Backspace: 16777219, ControlModifier: 1, AltModifier: 2, MetaModifier: 4,
+  const Qt = { Key_Escape: 16777216, Key_Backspace: 16777219, ControlModifier: 1, AltModifier: 2, MetaModifier: 4,
     callLater: fn => fn() };
   const input = { text, cursorPosition: text.length, selectionStart: text.length,
     selectionEnd: text.length, preeditText: '', forceActiveFocus: () => { focused++; } };
-  const root = { view, menuRoute, query: text, opened: true, actionsOpen: false, shell: null,
+  const root = { view, entryView, menuRoute, query: text, opened: true, actionsOpen: false, shell: null,
     menuTree: { items: {
       'setup.default.browser': { parent: 'setup.default' },
       'setup.default': { parent: 'setup' }, setup: { parent: 'root' }
@@ -56,6 +56,28 @@ test('empty-search Backspace removes one submenu level per fresh press', () => {
   assert.equal(h.root.opened, true);
   assert.equal(h.focused(), 3);
   assert.equal(h.press().accepted, false); // no pill left; do not dismiss
+});
+
+test('Escape dismisses a view the hotkey opened directly', () => {
+  const h = harness({ view: 'emoji', entryView: 'emoji' });
+  assert.equal(h.press({ key: h.Qt.Key_Escape }).accepted, true);
+  assert.equal(h.root.opened, false);
+});
+
+test('Escape from a directly opened view clears search before dismissing', () => {
+  const h = harness({ view: 'emoji', entryView: 'emoji', text: 'fire' });
+  h.press({ key: h.Qt.Key_Escape });
+  assert.equal(h.input.text, '');
+  assert.equal(h.root.opened, true);
+  h.press({ key: h.Qt.Key_Escape });
+  assert.equal(h.root.opened, false);
+});
+
+test('Escape returns a view opened from the root to the root', () => {
+  const h = harness({ view: 'emoji', entryView: 'root' });
+  h.press({ key: h.Qt.Key_Escape });
+  assert.equal(h.root.view, 'root');
+  assert.equal(h.root.opened, true);
 });
 
 test('Backspace at the beginning removes the pill while preserving search text', () => {
